@@ -41,6 +41,7 @@ namespace NLog
     using System.Linq;
     using System.Reflection;
     using System.Threading;
+    using JetBrains.Annotations;
     using NLog.Common;
     using NLog.Config;
     using NLog.Filters;
@@ -58,7 +59,7 @@ namespace NLog
         private static readonly Assembly systemAssembly = typeof(Debug).Assembly;
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Naming", "CA2204:Literals should be spelled correctly", Justification = "Using 'NLog' in message.")]
-        internal static void Write(Type loggerType, TargetWithFilterChain targets, LogEventInfo logEvent, LogFactory factory)
+        internal static void Write([NotNull] Type loggerType, TargetWithFilterChain targets, LogEventInfo logEvent, LogFactory factory)
         {
             if (targets == null)
             {
@@ -100,7 +101,9 @@ namespace NLog
                     break;
                 }
             }
+
         }
+
 
         /// <summary>
         ///  Finds first user stack frame in a stack trace
@@ -125,7 +128,6 @@ namespace NLog
 
             return 0;
         }
-
         /// <summary>
         ///  Defines whether a stack frame belongs to non-user code
         /// </summary>
@@ -145,6 +147,7 @@ namespace NLog
             if (SkipAssembly(assembly)) return true;
             // or if that type is the loggerType or one of its subtypes
             return declaringType != null && loggerType.IsAssignableFrom(declaringType);
+
         }
 
         private static bool SkipAssembly(Assembly assembly)
@@ -164,7 +167,9 @@ namespace NLog
                 return true;
             }
 
+
             if (LogManager.IsHiddenAssembly(assembly))
+
             {
                 return true;
             }

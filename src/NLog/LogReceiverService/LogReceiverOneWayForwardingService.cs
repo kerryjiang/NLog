@@ -1,4 +1,4 @@
-// 
+﻿// 
 // Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
 // 
 // All rights reserved.
@@ -31,46 +31,33 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
-#if !SILVERLIGHT
+#if WCF_SUPPORTED && !SILVERLIGHT
 
-namespace NLog.Targets
+namespace NLog.LogReceiverService
 {
-    using System.Web;
+    using System;
+    using System.Collections.Generic;
 
     /// <summary>
-    /// Writes log messages to the ASP.NET trace.
+    /// Implementation of <see cref="ILogReceiverOneWayServer" /> which forwards received logs through <see cref="LogManager"/> or a given <see cref="LogFactory"/>.
     /// </summary>
-    /// <seealso href="http://nlog-project.org/wiki/AspNetTrace_target">Documentation on NLog Wiki</seealso>
-    /// <remarks>
-    /// Log entries can then be viewed by navigating to http://server/path/Trace.axd.
-    /// </remarks>
-    [Target("AspNetTrace")]
-    public class AspNetTraceTarget : TargetWithLayout
+    public class LogReceiverOneWayForwardingService : BaseLogReceiverForwardingService, ILogReceiverOneWayServer
     {
         /// <summary>
-        /// Writes the specified logging event to the ASP.NET Trace facility. 
-        /// If the log level is greater than or equal to <see cref="LogLevel.Warn"/> it uses the
-        /// System.Web.TraceContext.Warn method, otherwise it uses
-        /// System.Web.TraceContext.Write method.
+        /// Initializes a new instance of the <see cref="LogReceiverOneWayForwardingService"/> class.
         /// </summary>
-        /// <param name="logEvent">The logging event.</param>
-        protected override void Write(LogEventInfo logEvent)
+        public LogReceiverOneWayForwardingService()
+            : this(null)
         {
-            HttpContext context = HttpContext.Current;
+        }
 
-            if (context == null)
-            {
-                return;
-            }
-
-            if (logEvent.Level >= LogLevel.Warn)
-            {
-                context.Trace.Warn(logEvent.LoggerName, this.Layout.Render(logEvent));
-            }
-            else
-            {
-                context.Trace.Write(logEvent.LoggerName, this.Layout.Render(logEvent));
-            }
+        /// <summary>
+        /// Initializes a new instance of the <see cref="LogReceiverOneWayForwardingService"/> class.
+        /// </summary>
+        /// <param name="logFactory">The log factory.</param>
+        public LogReceiverOneWayForwardingService(LogFactory logFactory)
+            : base(logFactory)
+        {
         }
     }
 }
