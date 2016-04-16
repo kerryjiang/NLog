@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -37,6 +37,8 @@ namespace NLog.Config
 
     /// <summary>
     /// Provides simple programmatic configuration API used for trivial logging cases.
+    /// 
+    /// Warning, these methods will overwrite the current config.
     /// </summary>
     public static class SimpleConfigurator
     {

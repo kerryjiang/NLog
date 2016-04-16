@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -39,6 +39,10 @@ namespace NLog.LayoutRenderers
     /// <summary>
     /// Designates a property of the class as an ambient property.
     /// </summary>
+    /// <example>
+    /// non-ambient:  ${uppercase:${level}} 
+    /// ambient    :  ${level:uppercase} 
+    /// </example>
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
     public sealed class AmbientPropertyAttribute : NameBaseAttribute
     {

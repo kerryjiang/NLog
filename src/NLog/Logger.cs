@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -79,7 +79,6 @@ namespace NLog
         /// </summary>
         public LogFactory Factory { get; private set; }
 
-        
         /// <summary>
         /// Gets a value indicating whether logging is enabled for the specified level.
         /// </summary>
@@ -119,8 +118,8 @@ namespace NLog
                 this.WriteToTargets(wrapperType, logEvent);
             }
         }
-    
-        #region Log() overloads 
+
+        #region Log() overloads
 
         /// <overloads>
         /// Writes the diagnostic message at the specified level using the specified format provider and format parameters.
@@ -233,11 +232,43 @@ namespace NLog
         /// <param name="level">The log level.</param>
         /// <param name="message">A <see langword="string" /> to be written.</param>
         /// <param name="exception">An exception to be logged.</param>
+        [Obsolete("Use Log(LogLevel level, Exception exception, [Localizable(false)] string message, params object[] args)")]
         public void Log(LogLevel level, [Localizable(false)] string message, Exception exception)
         {
             if (this.IsEnabled(level))
             {
                 this.WriteToTargets(level, message, exception);
+            }
+        }
+
+        /// <summary>
+        /// Writes the diagnostic message and exception at the specified level.
+        /// </summary>
+        /// <param name="level">The log level.</param>
+        /// <param name="message">A <see langword="string" /> to be written.</param>
+        /// <param name="args">Arguments to format.</param>
+        /// <param name="exception">An exception to be logged.</param>
+        public void Log(LogLevel level, Exception exception, [Localizable(false)] string message, params object[] args)
+        {
+            if (this.IsEnabled(level))
+            {
+                this.WriteToTargets(level, exception, message, args);
+            }
+        }
+
+        /// <summary>
+        /// Writes the diagnostic message and exception at the specified level.
+        /// </summary>
+        /// <param name="level">The log level.</param>
+        /// <param name="formatProvider">An IFormatProvider that supplies culture-specific formatting information.</param>
+        /// <param name="message">A <see langword="string" /> to be written.</param>
+        /// <param name="args">Arguments to format.</param>
+        /// <param name="exception">An exception to be logged.</param>
+        public void Log(LogLevel level, Exception exception, IFormatProvider formatProvider, [Localizable(false)] string message, params object[] args)
+        {
+            if (this.IsEnabled(level))
+            {
+                this.WriteToTargets(level, exception, formatProvider, message, args);
             }
         }
 
@@ -267,16 +298,9 @@ namespace NLog
         /// <param name="argument">The argument to format.</param>
         [StringFormatMethod("message")]
         public void Log<TArgument>(LogLevel level, [Localizable(false)] string message, TArgument argument)
-        { 
+        {
             if (this.IsEnabled(level))
             {
-                var exceptionCandidate = argument as Exception;
-                if (exceptionCandidate != null)
-                {
-                    this.Log(level, message, exceptionCandidate);
-                    return;
-                }
-
                 this.WriteToTargets(level, message, new object[] { argument });
             }
         }
@@ -357,11 +381,32 @@ namespace NLog
             }
         }
 
+        internal void WriteToTargets(LogLevel level, Exception ex, [Localizable(false)] string message, object[] args)
+        {
+            LoggerImpl.Write(this.loggerType, this.GetTargetsForLevel(level), PrepareLogEventInfo(LogEventInfo.Create(level, this.Name, ex, this.Factory.DefaultCultureInfo, message, args)), this.Factory);
+        }
+
+        internal void WriteToTargets(LogLevel level, Exception ex, IFormatProvider formatProvider, [Localizable(false)] string message, object[] args)
+        {
+            LoggerImpl.Write(this.loggerType, this.GetTargetsForLevel(level), PrepareLogEventInfo(LogEventInfo.Create(level, this.Name, ex, formatProvider, message, args)), this.Factory);
+        }
+
+
+        private LogEventInfo PrepareLogEventInfo(LogEventInfo logEvent)
+        {
+            if (logEvent.FormatProvider == null)
+            {
+                logEvent.FormatProvider = this.Factory.DefaultCultureInfo;
+            }
+            return logEvent;
+
+        }
+
         #endregion
 
- 
+
         /// <summary>
-        /// Runs action. If the action throws, the exception is logged at <c>Error</c> level. Exception is not propagated outside of this method.
+        /// Runs the provided action. If the action throws, the exception is logged at <c>Error</c> level. The exception is not propagated outside of this method.
         /// </summary>
         /// <param name="action">Action to execute.</param>
         public void Swallow(Action action)
@@ -377,24 +422,24 @@ namespace NLog
         }
 
         /// <summary>
-        /// Runs the provided function and returns its result. If exception is thrown, it is logged at <c>Error</c> level.
-        /// Exception is not propagated outside of this method. Fallback value is returned instead.
+        /// Runs the provided function and returns its result. If an exception is thrown, it is logged at <c>Error</c> level.
+        /// The exception is not propagated outside of this method; a default value is returned instead.
         /// </summary>
         /// <typeparam name="T">Return type of the provided function.</typeparam>
         /// <param name="func">Function to run.</param>
-        /// <returns>Result returned by the provided function or fallback value in case of exception.</returns>
+        /// <returns>Result returned by the provided function or the default value of type <typeparamref name="T"/> in case of exception.</returns>
         public T Swallow<T>(Func<T> func)
         {
             return Swallow(func, default(T));
         }
 
         /// <summary>
-        /// Runs the provided function and returns its result. If exception is thrown, it is logged at <c>Error</c> level.
-        /// Exception is not propagated outside of this method. Fallback value is returned instead.
+        /// Runs the provided function and returns its result. If an exception is thrown, it is logged at <c>Error</c> level.
+        /// The exception is not propagated outside of this method; a fallback value is returned instead.
         /// </summary>
         /// <typeparam name="T">Return type of the provided function.</typeparam>
         /// <param name="func">Function to run.</param>
-        /// <param name="fallback">Fallback value to return in case of exception. Defaults to default value of type T.</param>
+        /// <param name="fallback">Fallback value to return in case of exception.</param>
         /// <returns>Result returned by the provided function or fallback value in case of exception.</returns>
         public T Swallow<T>(Func<T> func, T fallback)
         {
@@ -411,7 +456,41 @@ namespace NLog
 
 #if ASYNC_SUPPORTED
         /// <summary>
-        /// Runs async action. If the action throws, the exception is logged at <c>Error</c> level. Exception is not propagated outside of this method.
+        /// Logs an exception is logged at <c>Error</c> level if the provided task does not run to completion.
+        /// </summary>
+        /// <param name="task">The task for which to log an error if it does not run to completion.</param>
+        /// <remarks>This method is useful in fire-and-forget situations, where application logic does not depend on completion of task. This method is avoids C# warning CS4014 in such situations.</remarks>
+        public async void Swallow(Task task)
+        {
+            try
+            {
+                await task;
+            }
+            catch (Exception e)
+            {
+                Error(e);
+            }
+        }
+
+        /// <summary>
+        /// Returns a task that completes when a specified task to completes. If the task does not run to completion, an exception is logged at <c>Error</c> level. The returned task always runs to completion.
+        /// </summary>
+        /// <param name="task">The task for which to log an error if it does not run to completion.</param>
+        /// <returns>A task that completes in the <see cref="TaskStatus.RanToCompletion"/> state when <paramref name="task"/> completes.</returns>
+        public async Task SwallowAsync(Task task)
+        {
+            try
+            {
+                await task;
+            }
+            catch (Exception e)
+            {
+                Error(e);
+            }
+        }
+
+        /// <summary>
+        /// Runs async action. If the action throws, the exception is logged at <c>Error</c> level. The exception is not propagated outside of this method.
         /// </summary>
         /// <param name="asyncAction">Async action to execute.</param>
         public async Task SwallowAsync(Func<Task> asyncAction)
@@ -427,26 +506,26 @@ namespace NLog
         }
 
         /// <summary>
-        /// Runs the provided async function and returns its result. If exception is thrown, it is logged at <c>Error</c> level.
-        /// Exception is not propagated outside of this method. Fallback value is returned instead.
+        /// Runs the provided async function and returns its result. If the task does not run to completion, an exception is logged at <c>Error</c> level.
+        /// The exception is not propagated outside of this method; a default value is returned instead.
         /// </summary>
-        /// <typeparam name="T">Return type of the provided function.</typeparam>
+        /// <typeparam name="TResult">Return type of the provided function.</typeparam>
         /// <param name="asyncFunc">Async function to run.</param>
-        /// <returns>Result returned by the provided function or fallback value in case of exception.</returns>
-        public async Task<T> SwallowAsync<T>(Func<Task<T>> asyncFunc)
+        /// <returns>A task that represents the completion of the supplied task. If the supplied task ends in the <see cref="TaskStatus.RanToCompletion"/> state, the result of the new task will be the result of the supplied task; otherwise, the result of the new task will be the default value of type <typeparamref name="TResult"/>.</returns>
+        public async Task<TResult> SwallowAsync<TResult>(Func<Task<TResult>> asyncFunc)
         {
-            return await SwallowAsync(asyncFunc, default(T));
+            return await SwallowAsync(asyncFunc, default(TResult));
         }
 
         /// <summary>
-        /// Runs the provided async function and returns its result. If exception is thrown, it is logged at <c>Error</c> level.
-        /// Exception is not propagated outside of this method. Fallback value is returned instead.
+        /// Runs the provided async function and returns its result. If the task does not run to completion, an exception is logged at <c>Error</c> level.
+        /// The exception is not propagated outside of this method; a fallback value is returned instead.
         /// </summary>
-        /// <typeparam name="T">Return type of the provided function.</typeparam>
+        /// <typeparam name="TResult">Return type of the provided function.</typeparam>
         /// <param name="asyncFunc">Async function to run.</param>
-        /// <param name="fallback">Fallback value to return in case of exception. Defaults to default value of type T.</param>
-        /// <returns>Result returned by the provided function or fallback value in case of exception.</returns>
-        public async Task<T> SwallowAsync<T>(Func<Task<T>> asyncFunc, T fallback)
+        /// <param name="fallback">Fallback value to return if the task does not end in the <see cref="TaskStatus.RanToCompletion"/> state.</param>
+        /// <returns>A task that represents the completion of the supplied task. If the supplied task ends in the <see cref="TaskStatus.RanToCompletion"/> state, the result of the new task will be the result of the supplied task; otherwise, the result of the new task will be the fallback value.</returns>
+        public async Task<TResult> SwallowAsync<TResult>(Func<Task<TResult>> asyncFunc, TResult fallback)
         {
             try
             {
@@ -482,13 +561,23 @@ namespace NLog
 
         internal void WriteToTargets<T>(LogLevel level, IFormatProvider formatProvider, T value)
         {
-            LoggerImpl.Write(this.loggerType, this.GetTargetsForLevel(level), PrepareLogEventInfo(LogEventInfo.Create(level, this.Name, formatProvider, value)), this.Factory);
+            var logEvent = PrepareLogEventInfo(LogEventInfo.Create(level, this.Name, formatProvider, value));
+            var ex = value as Exception;
+            if (ex != null)
+            {
+                //also record exception
+                logEvent.Exception = ex;
+             
+            }
+            LoggerImpl.Write(this.loggerType, this.GetTargetsForLevel(level), logEvent, this.Factory);
         }
 
+        [Obsolete("Use WriteToTargets(Exception ex, LogLevel level, IFormatProvider formatProvider, string message, object[] args) method instead.")]
         internal void WriteToTargets(LogLevel level, [Localizable(false)] string message, Exception ex)
         {
             LoggerImpl.Write(this.loggerType, this.GetTargetsForLevel(level), PrepareLogEventInfo(LogEventInfo.Create(level, this.Name, message, ex)), this.Factory);
         }
+
 
         internal void WriteToTargets(LogLevel level, [Localizable(false)] string message, object[] args)
         {
@@ -503,17 +592,6 @@ namespace NLog
         internal void WriteToTargets(Type wrapperType, LogEventInfo logEvent)
         {
             LoggerImpl.Write(wrapperType ?? this.loggerType, this.GetTargetsForLevel(logEvent.Level), PrepareLogEventInfo(logEvent), this.Factory);
-        }
-
-
-        private LogEventInfo PrepareLogEventInfo(LogEventInfo logEvent)
-        {
-            if (logEvent.FormatProvider == null)
-            {
-                logEvent.FormatProvider = this.Factory.DefaultCultureInfo;
-            }
-            return logEvent;
-
         }
 
         internal void SetConfiguration(LoggerConfiguration newConfiguration)

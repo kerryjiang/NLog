@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -34,6 +34,7 @@
 namespace NLog
 {
     using System;
+    using Config;
 
     /// <summary>
     /// Global Diagnostics Context - used for log4net compatibility.
@@ -55,10 +56,33 @@ namespace NLog
         /// Gets the Global Diagnostics Context named item.
         /// </summary>
         /// <param name="item">Item name.</param>
-        /// <returns>The item value of string.Empty if the value is not present.</returns>
+        /// <returns>The value of <paramref name="item"/>, if defined; otherwise <see cref="String.Empty"/>.</returns>
+        /// <remarks>If the value isn't a <see cref="string"/> already, this call locks the <see cref="LogFactory"/> for reading the <see cref="LoggingConfiguration.DefaultCultureInfo"/> needed for converting to <see cref="string"/>. </remarks>
         public static string Get(string item)
         {
             return GlobalDiagnosticsContext.Get(item);
+        }
+
+        /// <summary>
+        /// Gets the Global Diagnostics Context item.
+        /// </summary>
+        /// <param name="item">Item name.</param>
+        /// <param name="formatProvider"><see cref="IFormatProvider"/> to use when converting the item's value to a string.</param>
+        /// <returns>The value of <paramref name="item"/> as a string, if defined; otherwise <see cref="String.Empty"/>.</returns>
+        /// <remarks>If <paramref name="formatProvider"/> is <c>null</c> and the value isn't a <see cref="string"/> already, this call locks the <see cref="LogFactory"/> for reading the <see cref="LoggingConfiguration.DefaultCultureInfo"/> needed for converting to <see cref="string"/>. </remarks>
+        public static string Get(string item, IFormatProvider formatProvider) 
+        {
+            return GlobalDiagnosticsContext.Get(item, formatProvider);
+        }
+
+        /// <summary>
+        /// Gets the Global Diagnostics Context named item.
+        /// </summary>
+        /// <param name="item">Item name.</param>
+        /// <returns>The value of <paramref name="item"/>, if defined; otherwise <c>null</c>.</returns>
+        public static object GetObject(string item)
+        {
+            return GlobalDiagnosticsContext.GetObject(item);
         }
 
         /// <summary>

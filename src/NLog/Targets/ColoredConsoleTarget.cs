@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,11 +31,12 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
-#if !SILVERLIGHT
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
 
 namespace NLog.Targets
 {
     using System;
+    using System.Text;
     using System.Collections.Generic;
     using System.ComponentModel;
     using System.IO;
@@ -126,6 +127,16 @@ namespace NLog.Targets
         public bool UseDefaultRowHighlightingRules { get; set; }
 
         /// <summary>
+        /// The encoding for writing messages to the <see cref="Console"/>.
+        ///  </summary>
+        /// <remarks>Has side effect</remarks>
+        public Encoding Encoding
+        {
+            get { return Console.OutputEncoding; }
+            set { Console.OutputEncoding = value; }
+        }
+
+        /// <summary>
         /// Gets the row highlighting rules.
         /// </summary>
         /// <docgen category='Highlighting Rules' order='10' />
@@ -174,6 +185,77 @@ namespace NLog.Targets
         protected override void Write(LogEventInfo logEvent)
         {
             this.Output(logEvent, this.Layout.Render(logEvent));
+        }
+
+        private void Output(LogEventInfo logEvent, string message)
+        {
+            ConsoleColor oldForegroundColor = Console.ForegroundColor;
+            ConsoleColor oldBackgroundColor = Console.BackgroundColor;
+            bool didChangeForegroundColor = false, didChangeBackgroundColor = false;
+
+            try
+            {
+                var matchingRule = GetMatchingRowHighlightingRule(logEvent);
+
+                didChangeForegroundColor = IsColorChange(matchingRule.ForegroundColor, oldForegroundColor);
+                if (didChangeForegroundColor)
+                    Console.ForegroundColor = (ConsoleColor)matchingRule.ForegroundColor;
+
+                didChangeBackgroundColor = IsColorChange(matchingRule.BackgroundColor, oldBackgroundColor);
+                if (didChangeBackgroundColor)
+                    Console.BackgroundColor = (ConsoleColor)matchingRule.BackgroundColor;
+
+                var consoleStream = this.ErrorStream ? Console.Error : Console.Out;
+                if (this.WordHighlightingRules.Count == 0)
+                {
+                    consoleStream.WriteLine(message);
+                }
+                else
+                {
+                    message = message.Replace("\a", "\a\a");
+                    foreach (ConsoleWordHighlightingRule hl in this.WordHighlightingRules)
+                    {
+                        message = hl.ReplaceWithEscapeSequences(message);
+                    }
+
+                    ColorizeEscapeSequences(consoleStream, message, new ColorPair(Console.ForegroundColor, Console.BackgroundColor), new ColorPair(oldForegroundColor, oldBackgroundColor));
+                    consoleStream.WriteLine();
+
+                    didChangeForegroundColor = didChangeBackgroundColor = true;
+                }
+            }
+            finally
+            {
+                if (didChangeForegroundColor)
+                    Console.ForegroundColor = oldForegroundColor;
+                if (didChangeBackgroundColor)
+                    Console.BackgroundColor = oldBackgroundColor;
+            }
+        }
+
+        private ConsoleRowHighlightingRule GetMatchingRowHighlightingRule(LogEventInfo logEvent)
+        {
+            foreach (ConsoleRowHighlightingRule rule in this.RowHighlightingRules)
+            {
+                if (rule.CheckCondition(logEvent))
+                    return rule;
+            }
+
+            if (this.UseDefaultRowHighlightingRules)
+            {
+                foreach (ConsoleRowHighlightingRule rule in defaultConsoleRowHighlightingRules)
+                {
+                    if (rule.CheckCondition(logEvent))
+                        return rule;
+                }
+            }
+
+            return ConsoleRowHighlightingRule.Default;
+        }
+
+        private static bool IsColorChange(ConsoleOutputColor targetColor, ConsoleColor oldColor)
+        {
+            return (targetColor != ConsoleOutputColor.NoChange) && ((ConsoleColor)targetColor != oldColor);
         }
 
         private static void ColorizeEscapeSequences(
@@ -271,76 +353,6 @@ namespace NLog.Targets
             if (p0 < message.Length)
             {
                 output.Write(message.Substring(p0));
-            }
-        }
-
-        private void Output(LogEventInfo logEvent, string message)
-        {
-            ConsoleColor oldForegroundColor = Console.ForegroundColor;
-            ConsoleColor oldBackgroundColor = Console.BackgroundColor;
-
-            try
-            {
-                ConsoleRowHighlightingRule matchingRule = null;
-
-                foreach (ConsoleRowHighlightingRule cr in this.RowHighlightingRules)
-                {
-                    if (cr.CheckCondition(logEvent))
-                    {
-                        matchingRule = cr;
-                        break;
-                    }
-                }
-
-                if (this.UseDefaultRowHighlightingRules && matchingRule == null)
-                {
-                    foreach (ConsoleRowHighlightingRule cr in defaultConsoleRowHighlightingRules)
-                    {
-                        if (cr.CheckCondition(logEvent))
-                        {
-                            matchingRule = cr;
-                            break;
-                        }
-                    }
-                }
-
-                if (matchingRule == null)
-                {
-                    matchingRule = ConsoleRowHighlightingRule.Default;
-                }
-
-                if (matchingRule.ForegroundColor != ConsoleOutputColor.NoChange)
-                {
-                    Console.ForegroundColor = (ConsoleColor)matchingRule.ForegroundColor;
-                }
-
-                if (matchingRule.BackgroundColor != ConsoleOutputColor.NoChange)
-                {
-                    Console.BackgroundColor = (ConsoleColor)matchingRule.BackgroundColor;
-                }
-
-                message = message.Replace("\a", "\a\a");
-
-                foreach (ConsoleWordHighlightingRule hl in this.WordHighlightingRules)
-                {
-                    message = hl.ReplaceWithEscapeSequences(message);
-                }
-
-                ColorizeEscapeSequences(this.ErrorStream ? Console.Error : Console.Out, message, new ColorPair(Console.ForegroundColor, Console.BackgroundColor), new ColorPair(oldForegroundColor, oldBackgroundColor));
-            }
-            finally
-            {
-                Console.ForegroundColor = oldForegroundColor;
-                Console.BackgroundColor = oldBackgroundColor;
-            }
-
-            if (this.ErrorStream)
-            {
-                Console.Error.WriteLine();
-            }
-            else
-            {
-                Console.WriteLine();
             }
         }
 

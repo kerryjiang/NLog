@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -69,23 +69,15 @@ namespace NLog.Internal
             }
             catch (Exception ex)
             {
+                InternalLogger.Error(ex, "Exception in asynchronous handler.");
+
                 if (ex.MustBeRethrown())
                 {
                     throw;
                 }
 
-                if (LogManager.ThrowExceptions)
-                {
-                    throw;
-                }
-
-                ReportExceptionInHandler(ex);
+                
             }
-        }
-
-        private static void ReportExceptionInHandler(Exception exception)
-        {
-            InternalLogger.Error("Exception in asynchronous handler {0}", exception);
         }
     }
 }

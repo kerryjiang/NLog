@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,17 +31,20 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
+using NLog.Internal;
+
 namespace NLog
 {
     using System;
     using System.Collections.Generic;
+    using Config;
 
     /// <summary>
     /// Global Diagnostics Context - a dictionary structure to hold per-application-instance values.
     /// </summary>
     public static class GlobalDiagnosticsContext
     {
-        private static Dictionary<string, string> dict = new Dictionary<string, string>();
+        private static Dictionary<string, object> dict = new Dictionary<string, object>();
 
         /// <summary>
         /// Sets the Global Diagnostics Context item to the specified value.
@@ -57,22 +60,55 @@ namespace NLog
         }
 
         /// <summary>
-        /// Gets the Global Diagnostics Context named item.
+        /// Sets the Global Diagnostics Context item to the specified value.
         /// </summary>
         /// <param name="item">Item name.</param>
-        /// <returns>The item value of string.Empty if the value is not present.</returns>
-        public static string Get(string item)
+        /// <param name="value">Item value.</param>
+        public static void Set(string item, object value)
         {
             lock (dict)
             {
-                string s;
+                dict[item] = value;
+            }
+        }
 
-                if (!dict.TryGetValue(item, out s))
-                {
-                    s = string.Empty;
-                }
+        /// <summary>
+        /// Gets the Global Diagnostics Context named item.
+        /// </summary>
+        /// <param name="item">Item name.</param>
+        /// <returns>The value of <paramref name="item"/>, if defined; otherwise <see cref="String.Empty"/>.</returns>
+        /// <remarks>If the value isn't a <see cref="string"/> already, this call locks the <see cref="LogFactory"/> for reading the <see cref="LoggingConfiguration.DefaultCultureInfo"/> needed for converting to <see cref="string"/>. </remarks>
+        public static string Get(string item)
+        {
+            return Get(item, null);
+        }
 
-                return s;
+        /// <summary>
+        /// Gets the Global Diagnostics Context item.
+        /// </summary>
+        /// <param name="item">Item name.</param>
+        /// <param name="formatProvider"><see cref="IFormatProvider"/> to use when converting the item's value to a string.</param>
+        /// <returns>The value of <paramref name="item"/> as a string, if defined; otherwise <see cref="String.Empty"/>.</returns>
+        /// <remarks>If <paramref name="formatProvider"/> is <c>null</c> and the value isn't a <see cref="string"/> already, this call locks the <see cref="LogFactory"/> for reading the <see cref="LoggingConfiguration.DefaultCultureInfo"/> needed for converting to <see cref="string"/>. </remarks>
+        public static string Get(string item, IFormatProvider formatProvider)
+        {
+            return FormatHelper.ConvertToString(GetObject(item), formatProvider);
+        }
+
+        /// <summary>
+        /// Gets the Global Diagnostics Context named item.
+        /// </summary>
+        /// <param name="item">Item name.</param>
+        /// <returns>The item value, if defined; otherwise <c>null</c>.</returns>
+        public static object GetObject(string item)
+        {
+            lock (dict)
+            {
+                object o;
+                if (!dict.TryGetValue(item, out o))
+                    o = null;
+
+                return o;
             }
         }
 

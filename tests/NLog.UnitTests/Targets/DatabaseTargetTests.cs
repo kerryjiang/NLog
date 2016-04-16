@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -42,8 +42,12 @@ namespace NLog.UnitTests.Targets
     using System.Data;
     using System.Data.Common;
     using System.Globalization;
+    using System.IO;
+    using NLog.Common;
+    using NLog.Config;
     using NLog.Targets;
     using Xunit;
+    using Xunit.Extensions;
 
     public class DatabaseTargetTests : NLogTestBase
     {
@@ -344,7 +348,7 @@ Dispose()
                     new DatabaseParameterInfo("msg", "${message}"),
                     new DatabaseParameterInfo("lvl", "${level}"),
                     new DatabaseParameterInfo("lg", "${logger}")
-                        
+
                 }
             };
 
@@ -530,7 +534,7 @@ Dispose()
 
             dt = new DatabaseTarget();
             dt.DBHost = "HOST1";
-            dt.DBDatabase= "${logger}";
+            dt.DBDatabase = "${logger}";
             Assert.Equal("Server=HOST1;Trusted_Connection=SSPI;Database=Logger1", this.GetConnectionString(dt));
 
             dt = new DatabaseTarget();
@@ -673,8 +677,9 @@ Dispose()
         }
 
         [Fact]
-        public void ConnectionStringNameNegativeTest()
+        public void ConnectionStringNameNegativeTest_if_ThrowConfigExceptions()
         {
+            LogManager.ThrowConfigExceptions = true;
             var dt = new DatabaseTarget
             {
                 ConnectionStringName = "MyConnectionString",
@@ -752,6 +757,92 @@ Dispose()
 
             dt.Initialize(null);
             Assert.Equal(typeof(System.Data.Odbc.OdbcConnection), dt.ConnectionType);
+        }
+
+        [Fact]  
+        public void GetProviderNameFromAppConfig()
+        {
+            LogManager.ThrowExceptions = true;
+            var databaseTarget = new DatabaseTarget()
+            {
+                Name = "myTarget",
+                ConnectionStringName = "test_connectionstring_with_providerName",
+                CommandText = "notimportant",
+            };
+            databaseTarget.ConnectionStringsSettings = new ConnectionStringSettingsCollection()
+            {
+                new ConnectionStringSettings("test_connectionstring_without_providerName","some connectionstring"),
+                new ConnectionStringSettings("test_connectionstring_with_providerName","some connectionstring","System.Data.SqlClient"),
+            };
+
+            databaseTarget.Initialize(null);
+            Assert.NotNull(databaseTarget.ProviderFactory);
+            Assert.Equal(typeof(System.Data.SqlClient.SqlClientFactory), databaseTarget.ProviderFactory.GetType());
+        }
+
+        [Fact]
+        public void DontRequireProviderNameInAppConfig()
+        {
+            LogManager.ThrowExceptions = true;
+            var databaseTarget = new DatabaseTarget()
+            {
+                Name = "myTarget",
+                ConnectionStringName = "test_connectionstring_without_providerName",
+                CommandText = "notimportant",
+                DBProvider = "System.Data.SqlClient"
+            };
+
+            databaseTarget.ConnectionStringsSettings = new ConnectionStringSettingsCollection()
+            {
+                new ConnectionStringSettings("test_connectionstring_without_providerName","some connectionstring"),
+                new ConnectionStringSettings("test_connectionstring_with_providerName","some connectionstring","System.Data.SqlClient"),
+            };
+
+            databaseTarget.Initialize(null);
+            Assert.NotNull(databaseTarget.ProviderFactory);
+            Assert.Equal(typeof(System.Data.SqlClient.SqlClientFactory), databaseTarget.ProviderFactory.GetType());
+        }
+
+        [Theory]
+        [InlineData("usetransactions='false'", true)]
+        [InlineData("usetransactions='true'", true)]
+        [InlineData("", false)]
+        public void WarningForObsoleteUseTransactions(string property, bool printWarning)
+        {
+            LoggingConfiguration c = CreateConfigurationFromString(string.Format(@"
+            <nlog ThrowExceptions='true'>
+                <targets>
+                    <target type='database' {0} name='t1' commandtext='fake sql' connectionstring='somewhere' />
+                </targets>
+                <rules>
+                      <logger name='*' writeTo='t1'>
+                       
+                      </logger>
+                    </rules>
+            </nlog>", property));
+
+            StringWriter writer1 = new StringWriter()
+            {
+                NewLine = "\n"
+            };
+            InternalLogger.LogWriter = writer1;
+            var t = c.FindTargetByName<DatabaseTarget>("t1");
+            t.Initialize(null);
+            var internalLog = writer1.ToString();
+
+            if (printWarning)
+            {
+                Assert.Contains("obsolete", internalLog, StringComparison.InvariantCultureIgnoreCase);
+                Assert.Contains("usetransactions", internalLog, StringComparison.InvariantCultureIgnoreCase);
+            }
+            else
+            {
+                Assert.DoesNotContain("obsolete", internalLog, StringComparison.InvariantCultureIgnoreCase);
+                Assert.DoesNotContain("usetransactions", internalLog, StringComparison.InvariantCultureIgnoreCase);
+            }
+
+
+
         }
 
         private static void AssertLog(string expectedLog)

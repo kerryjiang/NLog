@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -50,6 +50,7 @@ namespace NLog.Targets
     {
         private object lockObject = new object();
         private List<Layout> allLayouts;
+        private bool scannedForLayouts;
         private Exception initializeException;
 
         /// <summary>
@@ -75,6 +76,20 @@ namespace NLog.Targets
         /// Gets a value indicating whether the target has been initialized.
         /// </summary>
         protected bool IsInitialized { get; private set; }
+
+        /// <summary>
+        /// Get all used layouts in this target.
+        /// </summary>
+        /// <returns></returns>
+        internal List<Layout> GetAllLayouts()
+        {
+
+            if (!scannedForLayouts)
+            {
+                FindAllLayouts();
+            }
+            return allLayouts;
+        }
 
         /// <summary>
         /// Initializes this instance.
@@ -152,9 +167,12 @@ namespace NLog.Targets
             {
                 if (this.IsInitialized)
                 {
-                    foreach (Layout l in this.allLayouts)
+                    if (this.allLayouts != null)
                     {
-                        l.Precalculate(logEvent);
+                        foreach (Layout l in this.allLayouts)
+                        {
+                            l.Precalculate(logEvent);
+                        }
                     }
                 }
             }
@@ -206,11 +224,6 @@ namespace NLog.Targets
                 catch (Exception exception)
                 {
                     if (exception.MustBeRethrown())
-                    {
-                        throw;
-                    }
-
-                    if (LogManager.ThrowExceptions)
                     {
                         throw;
                     }
@@ -297,17 +310,22 @@ namespace NLog.Targets
                     {
                         this.InitializeTarget();
                         this.initializeException = null;
+                        if (this.allLayouts == null)
+                        {
+                            throw new NLogRuntimeException("{0}.allLayouts is null. Call base.InitializeTarget() in {0}", this.GetType());
+                        }
                     }
                     catch (Exception exception)
                     {
+                        InternalLogger.Error(exception, "Error initializing target '{0}'.", this);
+
+                        this.initializeException = exception;
+
                         if (exception.MustBeRethrown())
                         {
                             throw;
                         }
 
-                        this.initializeException = exception;
-                        InternalLogger.Error("Error initializing target {0} {1}.", this, exception);
-                        throw;
                     }
                 }
             }
@@ -336,13 +354,12 @@ namespace NLog.Targets
                     }
                     catch (Exception exception)
                     {
+                        InternalLogger.Error(exception, "Error closing target '{0}'.", this);
+
                         if (exception.MustBeRethrown())
                         {
                             throw;
                         }
-
-                        InternalLogger.Error("Error closing target {0} {1}.", this, exception);
-                        throw;
                     }
                 }
             }
@@ -395,7 +412,15 @@ namespace NLog.Targets
         /// </summary>
         protected virtual void InitializeTarget()
         {
-            this.GetAllLayouts();
+            //rescan as amount layouts can be changed.
+            FindAllLayouts();
+        }
+
+        private void FindAllLayouts()
+        {
+            this.allLayouts = new List<Layout>(ObjectGraphScanner.FindReachableObjects<Layout>(this));
+            InternalLogger.Trace("{0} has {1} layouts", this, this.allLayouts.Count);
+            this.scannedForLayouts = true;
         }
 
         /// <summary>
@@ -470,12 +495,6 @@ namespace NLog.Targets
             return new NLogRuntimeException("Target " + this + " failed to initialize.", this.initializeException);
         }
 
-        private void GetAllLayouts()
-        {
-            this.allLayouts = new List<Layout>(ObjectGraphScanner.FindReachableObjects<Layout>(this));
-            InternalLogger.Trace("{0} has {1} layouts", this, this.allLayouts.Count);
-        }
-
         /// <summary>
         /// Merges (copies) the event context properties from any event info object stored in
         /// parameters of the given event info object.
@@ -483,10 +502,10 @@ namespace NLog.Targets
         /// <param name="logEvent">The event info object to perform the merge to.</param>
         protected void MergeEventProperties(LogEventInfo logEvent)
         {
-			if (logEvent.Parameters == null)
-			{
-				return;
-			}
+            if (logEvent.Parameters == null)
+            {
+                return;
+            }
 
             foreach (var item in logEvent.Parameters)
             {

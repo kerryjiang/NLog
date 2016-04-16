@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -34,7 +34,8 @@
 namespace NLog.LayoutRenderers
 {
     using System.Text;
-    using NLog.Config;
+    using Config;
+    using Internal;
 
     /// <summary>
     /// Mapped Diagnostic Context item. Provided for compatibility with log4net.
@@ -57,8 +58,10 @@ namespace NLog.LayoutRenderers
         /// <param name="logEvent">Logging event.</param>
         protected override void Append(StringBuilder builder, LogEventInfo logEvent)
         {
-            string msg = MappedDiagnosticsContext.Get(this.Item);
-            builder.Append(msg);
+            //don't use MappedDiagnosticsContext.Get to ensure we are not locking the Factory (indirect by LogManager.Configuration).
+            var o = MappedDiagnosticsContext.GetObject(this.Item);
+            
+            builder.Append(o, logEvent, LoggingConfiguration);
         }
     }
 }

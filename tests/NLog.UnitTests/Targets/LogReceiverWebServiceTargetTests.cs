@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -186,11 +186,22 @@ namespace NLog.UnitTests.Targets
             var target = new MyLogReceiverWebServiceTarget();
             target.EndpointAddress = "http://notimportant:9999/";
             target.Initialize(configuration);
-            var asyncTarget = new AsyncTargetWrapper(target);
-            asyncTarget.Initialize(configuration);
-            asyncTarget.WriteAsyncLogEvents(new[] { LogEventInfo.Create(LogLevel.Info, "logger1", "message1").WithContinuation(ex => { }) });
-            Thread.Sleep(1000);
-            Assert.Equal(1, target.SendCount);
+            var asyncTarget = new AsyncTargetWrapper(target)
+            {
+                Name = "NoEmptyEventLists_wrapper"
+            };
+            try
+            {
+                asyncTarget.Initialize(configuration);
+                asyncTarget.WriteAsyncLogEvents(new[] { LogEventInfo.Create(LogLevel.Info, "logger1", "message1").WithContinuation(ex => { }) });
+                Thread.Sleep(1000);
+                Assert.Equal(1, target.SendCount);
+            }
+            finally
+            {
+                asyncTarget.Close();
+                target.Close();
+            }
         }
 
         public class MyLogReceiverWebServiceTarget : LogReceiverWebServiceTarget

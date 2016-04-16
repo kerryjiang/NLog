@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,8 +31,7 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
-using System.IO.Compression;
-using System.Security.Permissions;
+using System.Runtime.CompilerServices;
 
 namespace NLog.UnitTests
 {
@@ -45,44 +44,51 @@ namespace NLog.UnitTests
     using NLog.Config;
     using Xunit;
 #if SILVERLIGHT
-using System.Xml.Linq;
+    using System.Xml.Linq;
 #else
     using System.Xml;
+    using System.IO.Compression;
+    using System.Security.Permissions;
 #endif
 
     public abstract class NLogTestBase
     {
         protected NLogTestBase()
         {
-            InternalLogger.LogToConsole = false;
-            InternalLogger.LogToConsoleError = false;
+            //reset before every test
+            if (LogManager.Configuration != null)
+            {
+                //flush all events if needed.
+                LogManager.Configuration.Close();
+            }
+            LogManager.Configuration = null;
+            InternalLogger.Reset();
             LogManager.ThrowExceptions = false;
         }
 
-        public void AssertDebugCounter(string targetName, int val)
+        protected void AssertDebugCounter(string targetName, int val)
         {
             Assert.Equal(val, GetDebugTarget(targetName).Counter);
         }
 
-        public void AssertDebugLastMessage(string targetName, string msg)
+        protected void AssertDebugLastMessage(string targetName, string msg)
         {
             Assert.Equal(msg, GetDebugLastMessage(targetName));
         }
 
-
-        public void AssertDebugLastMessageContains(string targetName, string msg)
+        protected void AssertDebugLastMessageContains(string targetName, string msg)
         {
             string debugLastMessage = GetDebugLastMessage(targetName);
             Assert.True(debugLastMessage.Contains(msg),
                 string.Format("Expected to find '{0}' in last message value on '{1}', but found '{2}'", msg, targetName, debugLastMessage));
         }
 
-        public string GetDebugLastMessage(string targetName)
+        protected string GetDebugLastMessage(string targetName)
         {
             return GetDebugLastMessage(targetName, LogManager.Configuration);
         }
 
-        public string GetDebugLastMessage(string targetName, LoggingConfiguration configuration)
+        protected string GetDebugLastMessage(string targetName, LoggingConfiguration configuration)
         {
             return GetDebugTarget(targetName, configuration).LastMessage;
         }
@@ -92,18 +98,18 @@ using System.Xml.Linq;
             return GetDebugTarget(targetName, LogManager.Configuration);
         }
 
-        public NLog.Targets.DebugTarget GetDebugTarget(string targetName, LoggingConfiguration configuration)
+        protected NLog.Targets.DebugTarget GetDebugTarget(string targetName, LoggingConfiguration configuration)
         {
             var debugTarget = (NLog.Targets.DebugTarget)configuration.FindTargetByName(targetName);
             Assert.NotNull(debugTarget);
             return debugTarget;
         }
 
-        public void AssertFileContentsStartsWith(string fileName, string contents, Encoding encoding)
+        protected void AssertFileContentsStartsWith(string fileName, string contents, Encoding encoding)
         {
             FileInfo fi = new FileInfo(fileName);
             if (!fi.Exists)
-                Assert.True(true, "File '" + fileName + "' doesn't exist.");
+                Assert.True(false, "File '" + fileName + "' doesn't exist.");
 
             byte[] encodedBuf = encoding.GetBytes(contents);
             Assert.True(encodedBuf.Length <= fi.Length);
@@ -119,27 +125,22 @@ using System.Xml.Linq;
             }
         }
 
-        public void AssertFileSize(string filename, long expectedSize)
+        protected void AssertFileContentsEndsWith(string fileName, string contents, Encoding encoding)
         {
-            var fi = new FileInfo(filename);
+            if (!File.Exists(fileName))
+                Assert.True(false, "File '" + fileName + "' doesn't exist.");
 
-            if (!fi.Exists)
-            {
-                Assert.True(true, string.Format("File \"{0}\" doesn't exist.", filename));
-            }
-
-            if (fi.Length != expectedSize)
-            {
-                Assert.True(true, string.Format("Filesize of \"{0}\" unequals {1}.", filename, expectedSize));
-            }
+            string fileText = File.ReadAllText(fileName, encoding);
+            Assert.True(fileText.Length >= contents.Length);
+            Assert.Equal(contents, fileText.Substring(fileText.Length - contents.Length));
         }
 
 #if NET4_5
-        public void AssertZipFileContents(string fileName, string contents, Encoding encoding)
+        protected void AssertZipFileContents(string fileName, string contents, Encoding encoding)
         {
             FileInfo fi = new FileInfo(fileName);
             if (!fi.Exists)
-                Assert.True(true, "File '" + fileName + "' doesn't exist.");
+                Assert.True(false, "File '" + fileName + "' doesn't exist.");
 
             byte[] encodedBuf = encoding.GetBytes(contents);
             using (var stream = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -162,11 +163,11 @@ using System.Xml.Linq;
         }
 #endif
 
-        public void AssertFileContents(string fileName, string contents, Encoding encoding)
+        protected void AssertFileContents(string fileName, string contents, Encoding encoding)
         {
             FileInfo fi = new FileInfo(fileName);
             if (!fi.Exists)
-                Assert.True(true, "File '" + fileName + "' doesn't exist.");
+                Assert.True(false, "File '" + fileName + "' doesn't exist.");
 
             byte[] encodedBuf = encoding.GetBytes(contents);
             Assert.Equal(encodedBuf.Length, fi.Length);
@@ -182,7 +183,29 @@ using System.Xml.Linq;
             }
         }
 
-        public string StringRepeat(int times, string s)
+        protected void AssertFileContains(string fileName, string contentToCheck, Encoding encoding)
+        {
+            if (contentToCheck.Contains(Environment.NewLine))
+                Assert.True(false, "Please use only single line string to check.");
+
+            FileInfo fi = new FileInfo(fileName);
+            if (!fi.Exists)
+                Assert.True(false, "File '" + fileName + "' doesn't exist.");
+
+            using (TextReader fs = new StreamReader(fileName, encoding))
+            {
+                string line;
+                while ((line = fs.ReadLine()) != null)
+                {
+                    if (line.Contains(contentToCheck))
+                        return;
+                }
+            }
+
+            Assert.True(false, "File doesn't contains '" + contentToCheck + "'");
+        }
+
+        protected string StringRepeat(int times, string s)
         {
             StringBuilder sb = new StringBuilder(s.Length * times);
             for (int i = 0; i < times; ++i)
@@ -190,13 +213,46 @@ using System.Xml.Linq;
             return sb.ToString();
         }
 
-        protected void AssertLayoutRendererOutput(Layout l, string expected)
+        /// <summary>
+        /// Render layout <paramref name="layout"/> with dummy <see cref="LogEventInfo" />and compare result with <paramref name="expected"/>.
+        /// </summary>
+        protected static void AssertLayoutRendererOutput(Layout layout, string expected)
         {
-            l.Initialize(null);
-            string actual = l.Render(LogEventInfo.Create(LogLevel.Info, "loggername", "message"));
-            l.Close();
+            var logEventInfo = LogEventInfo.Create(LogLevel.Info, "loggername", "message");
+
+            AssertLayoutRendererOutput(layout, logEventInfo, expected);
+        }
+
+        /// <summary>
+        /// Render layout <paramref name="layout"/> with <paramref name="logEventInfo"/> and compare result with <paramref name="expected"/>.
+        /// </summary>
+        protected static void AssertLayoutRendererOutput(Layout layout, LogEventInfo logEventInfo, string expected)
+        {
+            layout.Initialize(null);
+            string actual = layout.Render(logEventInfo);
+            layout.Close();
             Assert.Equal(expected, actual);
         }
+
+#if MONO || NET4_5
+        /// <summary>
+        /// Get line number of previous line.
+        /// </summary>
+        protected int GetPrevLineNumber([CallerLineNumber] int callingFileLineNumber = 0)
+        {
+            return callingFileLineNumber - 1;
+        }
+#else
+        /// <summary>
+        /// Get line number of previous line.
+        /// </summary>
+        protected int GetPrevLineNumber()
+        {
+        //fixed value set with #line 100000
+            return 100001;
+        }
+
+#endif
 
         protected XmlLoggingConfiguration CreateConfigurationFromString(string configXml)
         {
@@ -214,58 +270,40 @@ using System.Xml.Linq;
         protected string RunAndCaptureInternalLog(SyncAction action, LogLevel internalLogLevel)
         {
             var stringWriter = new StringWriter();
-            var oldWriter = InternalLogger.LogWriter;
-            var oldLevel = InternalLogger.LogLevel;
-            var oldIncludeTimestamp = InternalLogger.IncludeTimestamp;
-            try
-            {
-                InternalLogger.LogWriter = stringWriter;
-                InternalLogger.LogLevel = LogLevel.Trace;
-                InternalLogger.IncludeTimestamp = false;
-                action();
+            InternalLogger.LogWriter = stringWriter;
+            InternalLogger.LogLevel = LogLevel.Trace;
+            InternalLogger.IncludeTimestamp = false;
+            action();
 
-                return stringWriter.ToString();
-            }
-            finally
-            {
-                InternalLogger.LogWriter = oldWriter;
-                InternalLogger.LogLevel = oldLevel;
-                InternalLogger.IncludeTimestamp = oldIncludeTimestamp;
-            }
+            return stringWriter.ToString();
         }
 
         public delegate void SyncAction();
 
         public class InternalLoggerScope : IDisposable
         {
-            private readonly string logFile;
-            private readonly LogLevel logLevel;
-            private readonly bool logToConsole;
-            private readonly bool includeTimestamp;
-            private readonly bool logToConsoleError;
             private readonly LogLevel globalThreshold;
             private readonly bool throwExceptions;
+            private readonly bool? throwConfigExceptions;
 
             public InternalLoggerScope()
             {
-                this.logFile = InternalLogger.LogFile;
-                this.logLevel = InternalLogger.LogLevel;
-                this.logToConsole = InternalLogger.LogToConsole;
-                this.includeTimestamp = InternalLogger.IncludeTimestamp;
-                this.logToConsoleError = InternalLogger.LogToConsoleError;
                 this.globalThreshold = LogManager.GlobalThreshold;
                 this.throwExceptions = LogManager.ThrowExceptions;
+                this.throwConfigExceptions = LogManager.ThrowConfigExceptions;
             }
 
             public void Dispose()
             {
-                InternalLogger.LogFile = this.logFile;
-                InternalLogger.LogLevel = this.logLevel;
-                InternalLogger.LogToConsole = this.logToConsole;
-                InternalLogger.IncludeTimestamp = this.includeTimestamp;
-                InternalLogger.LogToConsoleError = this.logToConsoleError;
+                if (File.Exists(InternalLogger.LogFile))
+                    File.Delete(InternalLogger.LogFile);
+
+                InternalLogger.Reset();
+
+                //restore logmanager
                 LogManager.GlobalThreshold = this.globalThreshold;
                 LogManager.ThrowExceptions = this.throwExceptions;
+                LogManager.ThrowConfigExceptions = this.throwConfigExceptions;
             }
         }
     }

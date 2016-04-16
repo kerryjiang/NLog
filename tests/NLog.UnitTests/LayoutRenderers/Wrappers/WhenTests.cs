@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -67,7 +67,7 @@ namespace NLog.UnitTests.LayoutRenderers.Wrappers
             var le = LogEventInfo.Create(LogLevel.Info, "logger", "message");
             Assert.Equal("messageYYY", l.Render(le));
         }
-        
+
         [Fact]
         public void ComplexWhenTest2()
         {
@@ -79,13 +79,6 @@ namespace NLog.UnitTests.LayoutRenderers.Wrappers
             Assert.Equal("messageYYY", l.Render(le));
         }
 
-        [Fact]
-        public void ComplexWhenWithColonTest()
-        {
-            SimpleLayout l = @"${when:when=1 == 1:Inner=Test${literal:text=\:} Hello}";
-
-            var le = LogEventInfo.Create(LogLevel.Info, "logger", "message");
-            Assert.Equal("Test: Hello", l.Render(le));
-        }
+       
     }
 }

@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -32,18 +32,22 @@
 // 
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Cache;
-using System.Runtime.Serialization;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using NLog.Internal;
-using NLog.Layouts;
 using NLog.Targets;
+
+#if NET4_5
+using System.Web.Http;
+using Owin;
+using Microsoft.Owin.Hosting;
+#endif
 using Xunit;
 
 namespace NLog.UnitTests.Targets
@@ -120,7 +124,6 @@ Morbi Nulla justo Aenean orci Vestibulum ullamcorper tincidunt mollis et hendrer
         <parameter name='date' type='System.String' layout='${longdate}'/>
         <parameter name='logger' type='System.String' layout='${logger}'/>
         <parameter name='level' type='System.String' layout='${level}'/>
-        <parameter name='machinename' type='System.String' layout='${machinename}'/>
     </target>
 </targets>
                 </nlog>");
@@ -128,20 +131,20 @@ Morbi Nulla justo Aenean orci Vestibulum ullamcorper tincidunt mollis et hendrer
             var target = configuration.FindTargetByName("webservice") as WebServiceTarget;
             Assert.NotNull(target);
 
-            Assert.Equal(target.Parameters.Count, 7);
+            Assert.Equal(target.Parameters.Count, 6);
 
             Assert.Equal(target.Encoding.WebName, "utf-8");
 
             //async call with mockup stream
             WebRequest webRequest = WebRequest.Create("http://www.test.com");
-            var request = (HttpWebRequest) webRequest;
+            var request = (HttpWebRequest)webRequest;
             var streamMock = new StreamMock();
 
             //event for async testing
-            var counterEvent = new CountdownEvent(1);
+            var counterEvent = new ManualResetEvent(false);
 
-            var parameterValues = new object[] {"", "336cec87129942eeabab3d8babceead7", "Debg", "2014-06-26 23:15:14.6348", "TestClient.Program", "Debug", "DELL"};
-            target.DoInvoke(parameterValues, c => counterEvent.Signal(), request,
+            var parameterValues = new object[] { "", "336cec87129942eeabab3d8babceead7", "Debg", "2014-06-26 23:15:14.6348", "TestClient.Program", "Debug" };
+            target.DoInvoke(parameterValues, c => counterEvent.Set(), request,
                 callback =>
                 {
                     var t = new Task(() => { });
@@ -150,18 +153,18 @@ Morbi Nulla justo Aenean orci Vestibulum ullamcorper tincidunt mollis et hendrer
                 },
                 result => streamMock);
 
-            counterEvent.Wait();
+            counterEvent.WaitOne(10000);
 
             var bytes = streamMock.bytes;
             var url = streamMock.stringed;
 
-            const string expectedUrl = "empty=&guid=336cec87129942eeabab3d8babceead7&m=Debg&date=2014-06-26+23%3a15%3a14.6348&logger=TestClient.Program&level=Debug&machinename=DELL";
+            const string expectedUrl = "empty=&guid=336cec87129942eeabab3d8babceead7&m=Debg&date=2014-06-26+23%3a15%3a14.6348&logger=TestClient.Program&level=Debug";
             Assert.Equal(expectedUrl, url);
 
             Assert.True(bytes.Length > 3);
 
             //not bom
-            var possbleBomBytes = bytes.Take(3);
+            var possbleBomBytes = bytes.Take(3).ToArray();
             if (includeBom)
             {
                 Assert.Equal(possbleBomBytes, EncodingHelpers.Utf8BOM);
@@ -171,7 +174,7 @@ Morbi Nulla justo Aenean orci Vestibulum ullamcorper tincidunt mollis et hendrer
                 Assert.NotEqual(possbleBomBytes, EncodingHelpers.Utf8BOM);
             }
 
-            Assert.Equal(bytes.Length, includeBom ? 143 : 140);
+            Assert.Equal(bytes.Length, includeBom ? 126 : 123);
         }
 
         #region helpers
@@ -238,7 +241,320 @@ Morbi Nulla justo Aenean orci Vestibulum ullamcorper tincidunt mollis et hendrer
 
 
         #endregion
-    }
 
+#if NET4_5
+
+
+        const string WsAddress = "http://localhost:9000/";
+
+        /// <summary>
+        /// Test the Webservice with REST api - <see cref="WebServiceProtocol.HttpPost"/> (only checking for no exception)
+        /// </summary>
+        [Fact]
+        public void WebserviceTest_restapi_httppost()
+        {
+
+
+            var configuration = CreateConfigurationFromString(string.Format(@"
+                <nlog throwExceptions='true'>
+                    <targets>
+                        <target type='WebService'
+                                name='ws'
+                                url='{0}{1}'
+                                protocol='HttpPost'
+                                encoding='UTF-8'
+                               >
+                            <parameter name='param1' type='System.String' layout='${{message}}'/> 
+                            <parameter name='param2' type='System.String' layout='${{level}}'/>
+     
+                        </target>
+                    </targets>
+                    <rules>
+                      <logger name='*' writeTo='ws'>
+                       
+                      </logger>
+                    </rules>
+                </nlog>", WsAddress, "api/logme"));
+
+
+            LogManager.Configuration = configuration;
+            var logger = LogManager.GetCurrentClassLogger();
+
+            LogMeController.ResetState(1);
+
+
+
+            StartOwinTest(() =>
+            {
+
+                logger.Info("message 1 with a post");
+            });
+
+
+        }
+
+        /// <summary>
+        /// Test the Webservice with REST api -  <see cref="WebServiceProtocol.HttpGet"/>  (only checking for no exception)
+        /// </summary>
+        [Fact]
+        public void WebserviceTest_restapi_httpget()
+        {
+            WebServiceTest_httpget("api/logme");
+        }
+
+        [Fact]
+        public void WebServiceTest_restapi_httpget_querystring()
+        {
+            WebServiceTest_httpget("api/logme?paramFromConfig=valueFromConfig");
+        }
+        
+        private void WebServiceTest_httpget(string relativeUrl)
+        {
+            var configuration = CreateConfigurationFromString(string.Format(@"
+                <nlog throwExceptions='true' >
+                    <targets>
+                        <target type='WebService'
+                                name='ws'
+                                url='{0}{1}'
+                                protocol='HttpGet'
+                                encoding='UTF-8'
+                               >
+                            <parameter name='param1' type='System.String' layout='${{message}}'/> 
+                            <parameter name='param2' type='System.String' layout='${{level}}'/>
+     
+                        </target>
+                    </targets>
+                    <rules>
+                      <logger name='*' writeTo='ws'>
+                       
+                      </logger>
+                    </rules>
+                </nlog>", WsAddress, relativeUrl));
+
+
+            LogManager.Configuration = configuration;
+            var logger = LogManager.GetCurrentClassLogger();
+
+            LogMeController.ResetState(1);
+
+            StartOwinTest(() =>
+            {
+                logger.Info("message 1 with a post");
+            });
+        }
+
+
+        /// <summary>
+        /// Timeout for <see cref="WebserviceTest_restapi_httppost_checkingLost"/>.
+        /// 
+        /// in miliseconds. 20000 = 20 sec
+        /// </summary>
+        const int webserviceCheckTimeoutMs = 20000;
+
+        /// <summary>
+        /// Test the Webservice with REST api - <see cref="WebServiceProtocol.HttpPost"/> (only checking for no exception)
+        /// 
+        /// repeats for checking 'lost messages'
+        /// </summary>
+        [Fact]
+        public void WebserviceTest_restapi_httppost_checkingLost()
+        {
+
+
+            var configuration = CreateConfigurationFromString(string.Format(@"
+                <nlog throwExceptions='true'>
+                    <targets>
+                        <target type='WebService'
+                                name='ws'
+                                url='{0}{1}'
+                                protocol='HttpPost'
+                                encoding='UTF-8'
+                               >
+                            <parameter name='param1' type='System.String' layout='${{message}}'/> 
+                            <parameter name='param2' type='System.String' layout='${{level}}'/>
+     
+                        </target>
+                    </targets>
+                    <rules>
+                      <logger name='*' writeTo='ws'>
+                       
+                      </logger>
+                    </rules>
+                </nlog>", WsAddress, "api/logme"));
+
+
+            LogManager.Configuration = configuration;
+            var logger = LogManager.GetCurrentClassLogger();
+
+
+
+            const int messageCount = 1000;
+            var createdMessages = new List<string>(messageCount);
+
+            for (int i = 0; i < messageCount; i++)
+            {
+                var message = "message " + i;
+                createdMessages.Add(message);
+
+            }
+
+            //reset
+            LogMeController.ResetState(messageCount);
+
+            StartOwinTest(() =>
+            {
+                foreach (var createdMessage in createdMessages)
+                {
+                    logger.Info(createdMessage);
+                }
+
+            });
+
+
+
+            Assert.Equal(LogMeController.CountdownEvent.CurrentCount, 0);
+            Assert.Equal(createdMessages.Count, LogMeController.RecievedLogsPostParam1.Count);
+            //Assert.Equal(createdMessages, ValuesController.RecievedLogsPostParam1);
+
+        }
+
+        /// <summary>
+        /// Start/config route of WS
+        /// </summary>
+        private class Startup
+        {
+            // This code configures Web API. The Startup class is specified as a type
+            // parameter in the WebApp.Start method.
+            public void Configuration(IAppBuilder appBuilder)
+            {
+                // Configure Web API for self-host. 
+                HttpConfiguration config = new HttpConfiguration();
+                config.Routes.MapHttpRoute(
+                    name: "DefaultApi",
+                    routeTemplate: "api/{controller}/{id}",
+                    defaults: new { id = RouteParameter.Optional }
+                );
+
+                appBuilder.UseWebApi(config);
+            }
+        }
+
+        private const string LogTemplate = "Method: {0}, param1: '{1}', param2: '{2}', body: {3}";
+
+        ///<remarks>Must be public </remarks>
+        public class LogMeController : ApiController
+        {
+            /// <summary>
+            /// Reset the state for unit testing
+            /// </summary>
+            /// <param name="expectedMessages"></param>
+            public static void ResetState(int expectedMessages)
+            {
+                RecievedLogsPostParam1 = new ConcurrentBag<string>();
+                RecievedLogsGetParam1 = new ConcurrentBag<string>();
+                CountdownEvent = new CountdownEvent(expectedMessages);
+            }
+
+            /// <summary>
+            /// Countdown event for keeping WS alive.
+            /// </summary>
+            public static CountdownEvent CountdownEvent = null;
+
+
+            /// <summary>
+            /// Recieved param1 values (get)
+            /// </summary>
+            public static ConcurrentBag<string> RecievedLogsGetParam1 = new ConcurrentBag<string>();
+            /// <summary>
+            /// Recieved param1 values(post)
+            /// </summary>
+            public static ConcurrentBag<string> RecievedLogsPostParam1 = new ConcurrentBag<string>();
+      
+
+            /// <summary>
+            /// We need a complex type for modelbinding because of content-type: "application/x-www-form-urlencoded" in <see cref="WebServiceTarget"/>
+            /// </summary>
+            public class ComplexType
+            {
+                public string Param1 { get; set; }
+                public string Param2 { get; set; }
+            }
+
+            /// <summary>
+            /// Get
+            /// </summary>
+            public string Get(int id)
+            {
+
+                return "value";
+            }
+
+            // GET api/values 
+            public IEnumerable<string> Get(string param1 = "", string param2 = "")
+            {
+
+                RecievedLogsGetParam1.Add(param1);
+                return new string[] { "value1", "value2" };
+            }
+
+            /// <summary>
+            /// Post
+            /// </summary>
+            public void Post([FromBody] ComplexType complexType)
+            {
+                //this is working. 
+                if (complexType == null)
+                {
+                    throw new ArgumentNullException("complexType");
+                }
+                RecievedLogsPostParam1.Add(complexType.Param1);
+
+                if (CountdownEvent != null)
+                {
+                    CountdownEvent.Signal();
+                }
+            }
+
+
+            /// <summary>
+            /// Put
+            /// </summary>
+         
+            public void Put(int id, [FromBody]string value)
+            {
+            }
+
+            /// <summary>
+            /// Delete
+            /// </summary>
+            public void Delete(int id)
+            {
+            }
+        }
+
+
+
+        internal static void StartOwinTest(Action testsFunc)
+        {
+            // HttpSelfHostConfiguration. So info: http://www.asp.net/web-api/overview/hosting-aspnet-web-api/use-owin-to-self-host-web-api
+
+            // Start webservice 
+            using (WebApp.Start<Startup>(url: WsAddress))
+            {
+                testsFunc();
+
+                //wait for all recieved message, or timeout. There is no exception on timeout, so we have to check carefully in the unit test.
+                if (LogMeController.CountdownEvent != null)
+                {
+
+                    LogMeController.CountdownEvent.Wait(webserviceCheckTimeoutMs);
+                    //we need some extra time for completion
+                    Thread.Sleep(1000);
+                }
+            }
+        }
+
+#endif
+    }
 
 }

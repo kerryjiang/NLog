@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,9 +31,9 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
-using System.Linq;
 
-#if !SILVERLIGHT
+
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
 
 namespace NLog.Targets
 {
@@ -43,9 +43,11 @@ namespace NLog.Targets
     using System.ComponentModel;
     using System.Diagnostics;
     using System.Globalization;
+    using System.Linq;
     using NLog.Common;
     using NLog.Config;
     using NLog.Internal;
+    using Layouts;
 
     /// <summary>
     /// Increments specified performance counter on each write.
@@ -86,6 +88,7 @@ namespace NLog.Targets
         public PerformanceCounterTarget()
         {
             this.CounterType = PerformanceCounterType.NumberOfItems32;
+            this.IncrementValue = new SimpleLayout("1");
             this.InstanceName = string.Empty;
             this.CounterHelp = string.Empty;
         }
@@ -130,6 +133,13 @@ namespace NLog.Targets
         public PerformanceCounterType CounterType { get; set; }
 
         /// <summary>
+        /// The value by which to increment the counter.
+        /// </summary>
+        /// <docgen category='Performance Counter Options' order='10' />
+        [DefaultValue(1)]
+        public Layout IncrementValue { get; set; }
+
+        /// <summary>
         /// Performs installation which requires administrative permissions.
         /// </summary>
         /// <param name="installationContext">The installation context.</param>
@@ -166,11 +176,11 @@ namespace NLog.Targets
             }
             catch (Exception exception)
             {
-                if (exception.MustBeRethrown())
+
+                if (exception.MustBeRethrownImmediately())
                 {
                     throw;
                 }
-
                 if (installationContext.IgnoreFailures)
                 {
                     installationContext.Warning("Error creating category '{0}': {1}", categoryName, exception.Message);
@@ -178,6 +188,11 @@ namespace NLog.Targets
                 else
                 {
                     installationContext.Error("Error creating category '{0}': {1}", categoryName, exception.Message);
+                    throw;
+                }
+
+                if (exception.MustBeRethrown())
+                {
                     throw;
                 }
             }
@@ -234,7 +249,12 @@ namespace NLog.Targets
         {
             if (this.EnsureInitialized())
             {
-                this.perfCounter.Increment();
+                string incrementValueString = IncrementValue.Render(logEvent);
+                long incrementValue;
+                if (Int64.TryParse(incrementValueString, out incrementValue))
+                    this.perfCounter.IncrementBy(incrementValue);
+                else
+                    InternalLogger.Error("Error incrementing PerfCounter {0}. IncrementValue must be an integer but was <{1}>", CounterName, incrementValueString);
             }
         }
 
@@ -296,12 +316,13 @@ namespace NLog.Targets
                 }
                 catch (Exception exception)
                 {
+                    InternalLogger.Error(exception, "Cannot open performance counter {0}/{1}/{2}.", this.CategoryName, this.CounterName, this.InstanceName);
+
                     if (exception.MustBeRethrown())
                     {
                         throw;
                     }
-
-                    InternalLogger.Error("Cannot open performance counter {0}/{1}/{2}: {3}", this.CategoryName, this.CounterName, this.InstanceName, exception);
+                    
                 }
             }
 

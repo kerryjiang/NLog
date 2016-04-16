@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -95,7 +95,7 @@ namespace NLog.Internal
 
        
 
-            if (IsNullOrWhiteSpace(value))
+            if (StringHelpers.IsNullOrWhiteSpace(value))
             {
                 result = default(TEnum);
                 return false;
@@ -115,18 +115,6 @@ namespace NLog.Internal
             }
 
 
-        }
-
-        /// <summary>
-        /// IsNullOrWhiteSpace for .net 3.5
-        /// </summary>
-        /// <param name="value"></param>
-        /// <returns></returns>
-        private static bool IsNullOrWhiteSpace(string value)
-        {
-            if (value == null) return true;
-            if (value.Length == 0) return true;
-            return string.IsNullOrEmpty(value.Trim());
         }
     }
 }

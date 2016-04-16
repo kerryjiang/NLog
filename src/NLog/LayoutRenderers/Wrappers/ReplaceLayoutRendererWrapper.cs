@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -41,6 +41,9 @@ namespace NLog.LayoutRenderers.Wrappers
     /// <summary>
     /// Replaces a string in the output of another layout with another string.
     /// </summary>
+    /// <example>
+    /// ${replace:searchFor=\\n+:replaceWith=-:regex=true:inner=${message}}
+    /// </example>
     [LayoutRenderer("replace")]
     [ThreadAgnostic]
     public sealed class ReplaceLayoutRendererWrapper : WrapperLayoutRendererBase
@@ -161,11 +164,11 @@ namespace NLog.LayoutRenderers.Wrappers
         /// <summary>
         /// A match evaluator for Regular Expression based replacing
         /// </summary>
-        /// <param name="input"></param>
-        /// <param name="groupName"></param>
-        /// <param name="replacement"></param>
-        /// <param name="match"></param>
-        /// <returns></returns>
+        /// <param name="input">Input string.</param>
+        /// <param name="groupName">Group name in the regex.</param>
+        /// <param name="replacement">Replace value.</param>
+        /// <param name="match">Match from regex.</param>
+        /// <returns>Groups replaced with <paramref name="replacement"/>.</returns>
         public static string ReplaceNamedGroup(string input, string groupName, string replacement, Match match)
         {
             var sb = new StringBuilder(input);

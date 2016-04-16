@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -44,7 +44,15 @@ namespace NLog.Layouts
     [NLogConfigurationItem]
     public abstract class Layout : ISupportsInitialize, IRenderable
     {
+        /// <summary>
+        /// Is this layout initialized? See <see cref="Initialize(NLog.Config.LoggingConfiguration)"/>
+        /// </summary>
         private bool isInitialized;
+
+        /// <summary>
+        /// Does the layout contains threadAgnostic layout renders? If contains non-threadAgnostic-layoutrendender, then this layout is also not threadAgnostic. 
+        /// See <see cref="IsThreadAgnostic"/> and <see cref="Initialize"/>.
+        /// </summary>
         private bool threadAgnostic;
 
         /// <summary>
@@ -55,8 +63,8 @@ namespace NLog.Layouts
         /// like that as well.
         /// Thread-agnostic layouts only use contents of <see cref="LogEventInfo"/> for its output.
         /// </remarks>
-        internal bool IsThreadAgnostic
-        {
+		internal bool IsThreadAgnostic
+		{
             get { return this.threadAgnostic; }
         }
 
@@ -99,6 +107,8 @@ namespace NLog.Layouts
         /// <summary>
         /// Precalculates the layout for the specified log event and stores the result
         /// in per-log event cache.
+        /// 
+        /// Only if the layout doesn't have [ThreadAgnostic] and doens't contain layouts with [ThreadAgnostic]. 
         /// </summary>
         /// <param name="logEvent">The log event.</param>
         /// <remarks>
@@ -151,8 +161,8 @@ namespace NLog.Layouts
         /// Initializes this instance.
         /// </summary>
         /// <param name="configuration">The configuration.</param>
-        internal void Initialize(LoggingConfiguration configuration)
-        {
+		internal void Initialize(LoggingConfiguration configuration)
+		{
             if (!this.isInitialized)
             {
                 this.LoggingConfiguration = configuration;
@@ -178,8 +188,8 @@ namespace NLog.Layouts
         /// <summary>
         /// Closes this instance.
         /// </summary>
-        internal void Close()
-        {
+		internal void Close()
+		{
             if (this.isInitialized)
             {
                 this.LoggingConfiguration = null;

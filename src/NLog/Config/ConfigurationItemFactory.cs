@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -53,6 +53,8 @@ namespace NLog.Config
     /// </summary>
     public class ConfigurationItemFactory
     {
+        private static ConfigurationItemFactory defaultInstance = null;
+
         private readonly IList<object> allFactories;
         private readonly Factory<Target, TargetAttribute> targets;
         private readonly Factory<Filter, FilterAttribute> filters;
@@ -61,15 +63,7 @@ namespace NLog.Config
         private readonly MethodFactory<ConditionMethodsAttribute, ConditionMethodAttribute> conditionMethods;
         private readonly Factory<LayoutRenderer, AmbientPropertyAttribute> ambientProperties;
         private readonly Factory<TimeSource, TimeSourceAttribute> timeSources;
-
-        /// <summary>
-        /// Initializes static members of the <see cref="ConfigurationItemFactory"/> class.
-        /// </summary>
-        static ConfigurationItemFactory()
-        {
-            Default = BuildDefaultFactory();
-        }
-
+        
         /// <summary>
         /// Initializes a new instance of the <see cref="ConfigurationItemFactory"/> class.
         /// </summary>
@@ -104,7 +98,20 @@ namespace NLog.Config
         /// <summary>
         /// Gets or sets default singleton instance of <see cref="ConfigurationItemFactory"/>.
         /// </summary>
-        public static ConfigurationItemFactory Default { get; set; }
+        /// <remarks>
+        /// This property implements lazy instantiation so that the <see cref="ConfigurationItemFactory"/> is not built before 
+        /// the internal logger is configured.
+        /// </remarks>
+        public static ConfigurationItemFactory Default
+        {
+            get
+            {
+                if (defaultInstance == null)
+                    defaultInstance = BuildDefaultFactory();
+                return defaultInstance;
+            }
+            set { defaultInstance = value; }
+        }
 
         /// <summary>
         /// Gets or sets the creator delegate used to instantiate configuration objects.
@@ -235,9 +242,11 @@ namespace NLog.Config
             var factory = new ConfigurationItemFactory(nlogAssembly);
             factory.RegisterExtendedItems();
 #if !SILVERLIGHT
-            var assemblyLocation = Path.GetDirectoryName(nlogAssembly.Location);
+
+            var assemblyLocation = Path.GetDirectoryName(new Uri(nlogAssembly.CodeBase).LocalPath);
             if (assemblyLocation == null)
             {
+                InternalLogger.Warn("No auto loading because Nlog.dll location is unknown");
                 return factory;
             }
 
@@ -247,12 +256,36 @@ namespace NLog.Config
                 .Where(x => !x.Equals("NLog.UnitTests.dll", StringComparison.OrdinalIgnoreCase))
                 .Where(x => !x.Equals("NLog.Extended.dll", StringComparison.OrdinalIgnoreCase))
                 .Select(x => Path.Combine(assemblyLocation, x));
+
+            InternalLogger.Debug("Start auto loading, location: {0}", assemblyLocation);
             foreach (var extensionDll in extensionDlls)
             {
                 InternalLogger.Info("Auto loading assembly file: {0}", extensionDll);
-                var extensionAssembly = Assembly.LoadFrom(extensionDll);
-                factory.RegisterItemsFromAssembly(extensionAssembly);
+                var success = false;
+                try
+                {
+                    var extensionAssembly = Assembly.LoadFrom(extensionDll);
+                    InternalLogger.LogAssemblyVersion(extensionAssembly);
+                    factory.RegisterItemsFromAssembly(extensionAssembly);
+                    success = true;
+                }
+                catch (Exception ex)
+                {
+                    if (ex.MustBeRethrownImmediately())
+                    {
+                        throw;
+                    }
+
+                    InternalLogger.Warn(ex, "Auto loading assembly file: {0} failed! Skipping this file.", extensionDll);
+                    //TODO NLog 5, check MustBeRethrown()
+                }
+                if (success)
+                {
+                    InternalLogger.Info("Auto loading assembly file: {0} succeeded!", extensionDll);
+                }
+
             }
+            InternalLogger.Debug("Auto loading done");
 #endif
 
             return factory;

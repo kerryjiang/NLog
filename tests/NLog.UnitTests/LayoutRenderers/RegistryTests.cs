@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -48,11 +48,44 @@ namespace NLog.UnitTests.LayoutRenderers
             var key = Registry.CurrentUser.CreateSubKey(TestKey);
             key.SetValue("Foo", "FooValue");
             key.SetValue(null, "UnnamedValue");
+
+#if !NET3_5
+
+            //different keys because in 32bit the 64bits uses the 32
+            RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry32).CreateSubKey("Software\\NLogTest").SetValue("view32", "reg32");
+            RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64).CreateSubKey("Software\\NLogTest").SetValue("view64", "reg64");
+#endif
         }
 
         public void Dispose()
         {
-            Registry.CurrentUser.DeleteSubKey(TestKey);
+
+#if !NET3_5
+
+            //different keys because in 32bit the 64bits uses the 32
+            try
+            {
+                RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry32).DeleteSubKey("Software\\NLogTest");
+            }
+            catch (Exception)
+            {
+            }
+
+            try
+            {
+                RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64).DeleteSubKey("Software\\NLogTest");
+            }
+            catch (Exception)
+            {
+            }
+#endif
+            try
+            {
+                Registry.CurrentUser.DeleteSubKey(TestKey);
+            }
+            catch (Exception)
+            {
+            }
         }
 
         [Fact]
@@ -70,12 +103,78 @@ namespace NLog.UnitTests.LayoutRenderers
             AssertDebugLastMessage("debug", "FooValue");
         }
 
+#if !NET3_5
+
+        [Fact]
+        public void RegistryNamedValueTest_hive32()
+        {
+            LogManager.Configuration = CreateConfigurationFromString(@"
+            <nlog>
+                <targets><target name='debug' type='Debug' layout='${registry:key=HKCU\\Software\\NLogTest:value=view32:view=Registry32}' /></targets>
+                <rules>
+                    <logger name='*' minlevel='Debug' writeTo='debug' />
+                </rules>
+            </nlog>");
+
+            LogManager.GetLogger("d").Debug("zzz");
+            AssertDebugLastMessage("debug", "reg32");
+        }
+
+        [Fact]
+        public void RegistryNamedValueTest_hive64()
+        {
+            LogManager.Configuration = CreateConfigurationFromString(@"
+            <nlog>
+                <targets><target name='debug' type='Debug' layout='${registry:key=HKCU\\Software\\NLogTest:value=view64:view=Registry64}' /></targets>
+                <rules>
+                    <logger name='*' minlevel='Debug' writeTo='debug' />
+                </rules>
+            </nlog>");
+
+            LogManager.GetLogger("d").Debug("zzz");
+            AssertDebugLastMessage("debug", "reg64");
+        }
+
+#endif
+
+        [Fact]
+        public void RegistryNamedValueTest_forward_slash()
+        {
+            LogManager.Configuration = CreateConfigurationFromString(@"
+            <nlog>
+                <targets><target name='debug' type='Debug' layout='${registry:key=HKCU/Software/NLogTest:value=Foo}' /></targets>
+                <rules>
+                    <logger name='*' minlevel='Debug' writeTo='debug' />
+                </rules>
+            </nlog>");
+
+            LogManager.GetLogger("d").Debug("zzz");
+            AssertDebugLastMessage("debug", "FooValue");
+        }
+
         [Fact]
         public void RegistryUnnamedValueTest()
         {
             LogManager.Configuration = CreateConfigurationFromString(@"
             <nlog>
                 <targets><target name='debug' type='Debug' layout='${registry:key=HKCU\\Software\\NLogTest}' /></targets>
+                <rules>
+                    <logger name='*' minlevel='Debug' writeTo='debug' />
+                </rules>
+            </nlog>");
+
+            LogManager.GetLogger("d").Debug("zzz");
+            AssertDebugLastMessage("debug", "UnnamedValue");
+
+        }
+
+
+        [Fact]
+        public void RegistryUnnamedValueTest_forward_slash()
+        {
+            LogManager.Configuration = CreateConfigurationFromString(@"
+            <nlog>
+                <targets><target name='debug' type='Debug' layout='${registry:key=HKCU/Software/NLogTest}' /></targets>
                 <rules>
                     <logger name='*' minlevel='Debug' writeTo='debug' />
                 </rules>
@@ -102,6 +201,21 @@ namespace NLog.UnitTests.LayoutRenderers
         }
 
         [Fact]
+        public void RegistryKeyNotFoundTest_forward_slash()
+        {
+            LogManager.Configuration = CreateConfigurationFromString(@"
+            <nlog>
+                <targets><target name='debug' type='Debug' layout='${registry:key=HKCU/Software/NoSuchKey:defaultValue=xyz}' /></targets>
+                <rules>
+                    <logger name='*' minlevel='Debug' writeTo='debug' />
+                </rules>
+            </nlog>");
+
+            LogManager.GetLogger("d").Debug("zzz");
+            AssertDebugLastMessage("debug", "xyz");
+        }
+
+        [Fact]
         public void RegistryValueNotFoundTest()
         {
             LogManager.Configuration = CreateConfigurationFromString(@"
@@ -114,6 +228,83 @@ namespace NLog.UnitTests.LayoutRenderers
 
             LogManager.GetLogger("d").Debug("zzz");
             AssertDebugLastMessage("debug", "xyz");
+        }
+
+
+        [Fact]
+        public void RegistryDefaultValueTest()
+        {
+            //example: 0003: NLog.UnitTests
+            AssertLayoutRendererOutput("${registry:value=NOT_EXISTENT:key=HKLM/NOT_EXISTENT:defaultValue=logdefaultvalue}",
+                "logdefaultvalue");
+        }
+
+        [Fact]
+        public void RegistryDefaultValueTest_with_colon()
+        {
+            //example: 0003: NLog.UnitTests
+            AssertLayoutRendererOutput("${registry:value=NOT_EXISTENT:key=HKLM/NOT_EXISTENT:defaultValue=C\\:temp}",
+                "C:temp");
+        }
+
+
+        [Fact]
+        public void RegistryDefaultValueTest_with_slash()
+        {
+            //example: 0003: NLog.UnitTests
+            AssertLayoutRendererOutput("${registry:value=NOT_EXISTENT:key=HKLM/NOT_EXISTENT:defaultValue=C/temp}",
+                "C/temp");
+        }
+
+        [Fact]
+        public void RegistryDefaultValueTest_with_foward_slash()
+        {
+            //example: 0003: NLog.UnitTests
+            AssertLayoutRendererOutput("${registry:value=NOT_EXISTENT:key=HKLM/NOT_EXISTENT:defaultValue=C\\\\temp}",
+                "C\\temp");
+        }
+
+
+        [Fact]
+        public void RegistryDefaultValueTest_with_foward_slash2()
+        {
+            //example: 0003: NLog.UnitTests
+            AssertLayoutRendererOutput("${registry:value=NOT_EXISTENT:key=HKLM/NOT_EXISTENT:defaultValue=C\\temp:requireEscapingSlashesInDefaultValue=false}",
+                "C\\temp");
+        }
+
+        [Fact]
+        public void Registry_nosubky()
+        {
+            //example: 0003: NLog.UnitTests
+            AssertLayoutRendererOutput("${registry:key=HKEY_CURRENT_CONFIG}", "");
+        }
+
+        [Fact]
+        public void RegistryDefaultValueNull()
+        {
+            //example: 0003: NLog.UnitTests
+            AssertLayoutRendererOutput("${registry:value=NOT_EXISTENT:key=HKLM/NOT_EXISTENT}", "");
+        }
+
+        [Fact]
+        public void RegistryTestWrongKey_no_ex()
+        {
+            LogManager.ThrowExceptions = false;
+
+            AssertLayoutRendererOutput("${registry:value=NOT_EXISTENT:key=garabageHKLM/NOT_EXISTENT:defaultValue=empty}", "");
+        }
+
+        [Fact(Skip = "SimpleLayout.GetFormattedMessage catches exception. Will be fixed in the future")]
+
+        public void RegistryTestWrongKey_ex()
+        {
+            LogManager.ThrowExceptions = true;
+
+            Assert.Throws<ArgumentException>(
+                () => { AssertLayoutRendererOutput("${registry:value=NOT_EXISTENT:key=garabageHKLM/NOT_EXISTENT:defaultValue=empty}", ""); });
+
+
         }
     }
 }

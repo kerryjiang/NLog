@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -35,6 +35,7 @@
 
 namespace NLog.LayoutRenderers
 {
+    using System;
     using System.IO;
     using System.Text;
 
@@ -53,7 +54,11 @@ namespace NLog.LayoutRenderers
         /// </summary>
         static NLogDirLayoutRenderer()
         {
-            NLogDir = Path.GetDirectoryName(typeof(LogManager).Assembly.Location);
+            var assembly = typeof(LogManager).Assembly;
+            var location = !String.IsNullOrEmpty(assembly.Location)
+                ? assembly.Location
+                : new Uri(assembly.CodeBase).LocalPath;
+            NLogDir = Path.GetDirectoryName(location);
         }
 
         /// <summary>

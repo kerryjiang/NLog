@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -289,7 +289,7 @@ namespace NLog.UnitTests.Conditions
         [Fact]
         public void UnrecognizedMethod()
         {
-            Assert.Throws<NLogConfigurationException>(() => ConditionParser.ParseExpression("unrecognized-method()"));
+            Assert.Throws<ConditionParseException>(() => ConditionParser.ParseExpression("unrecognized-method()"));
         }
 
         [Fact]

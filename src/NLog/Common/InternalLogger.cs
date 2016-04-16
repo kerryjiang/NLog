@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -33,24 +33,32 @@
 
 namespace NLog.Common
 {
+    using JetBrains.Annotations;
     using System;
     using System.ComponentModel;
-    using System.Configuration;
     using System.Globalization;
     using System.IO;
+    using System.Reflection;
     using System.Text;
-    using NLog.Internal;
-    using NLog.Time;
-#if !SILVERLIGHT
+    using Internal;
+    using Time;
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
     using ConfigurationManager = System.Configuration.ConfigurationManager;
+    using System.Diagnostics;
 #endif
 
-	/// <summary>
+    /// <summary>
     /// NLog internal logger.
+    /// 
+    /// Writes to file, console or custom textwriter (see <see cref="InternalLogger.LogWriter"/>)
     /// </summary>
-    public static class InternalLogger
+    /// <remarks>
+    /// Don't use <see cref="ExceptionHelper.MustBeRethrown"/> as that can lead to recursive calls - stackoverflows
+    /// </remarks>
+    public static partial class InternalLogger
     {
-        private static object lockObject = new object();
+        private static readonly object LockObject = new object();
+        private static string _logFile;
 
         /// <summary>
         /// Initializes static members of the InternalLogger class.
@@ -58,38 +66,81 @@ namespace NLog.Common
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1810:InitializeReferenceTypeStaticFieldsInline", Justification = "Significant logic in .cctor()")]
         static InternalLogger()
         {
-#if !SILVERLIGHT
+            Reset();
+        }
+
+        /// <summary>
+        /// Set the config of the InternalLogger with defaults and config.
+        /// </summary>
+        public static void Reset()
+        {
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
             LogToConsole = GetSetting("nlog.internalLogToConsole", "NLOG_INTERNAL_LOG_TO_CONSOLE", false);
             LogToConsoleError = GetSetting("nlog.internalLogToConsoleError", "NLOG_INTERNAL_LOG_TO_CONSOLE_ERROR", false);
             LogLevel = GetSetting("nlog.internalLogLevel", "NLOG_INTERNAL_LOG_LEVEL", LogLevel.Info);
             LogFile = GetSetting("nlog.internalLogFile", "NLOG_INTERNAL_LOG_FILE", string.Empty);
+            LogToTrace = GetSetting("nlog.internalLogToTrace", "NLOG_INTERNAL_LOG_TO_TRACE", false);
+            IncludeTimestamp = GetSetting("nlog.internalLogIncludeTimestamp", "NLOG_INTERNAL_INCLUDE_TIMESTAMP", true);
             Info("NLog internal logger initialized.");
 #else
             LogLevel = LogLevel.Info;
-#endif
+            LogToConsole = false;
+            LogToConsoleError = false;
+            LogFile = string.Empty;
             IncludeTimestamp = true;
+#endif
+
+            LogWriter = null;
         }
 
         /// <summary>
-        /// Gets or sets the internal log level.
+        /// Gets or sets the minimal internal log level. 
         /// </summary>
+        /// <example>If set to <see cref="NLog.LogLevel.Info"/>, then messages of the levels <see cref="NLog.LogLevel.Info"/>, <see cref="NLog.LogLevel.Error"/> and <see cref="NLog.LogLevel.Fatal"/> will be written.</example>
         public static LogLevel LogLevel { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether internal messages should be written to the console output stream.
         /// </summary>
+        /// <remarks>Your application must be a console application.</remarks>
         public static bool LogToConsole { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether internal messages should be written to the console error stream.
         /// </summary>
+        /// <remarks>Your application must be a console application.</remarks>
         public static bool LogToConsoleError { get; set; }
 
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
         /// <summary>
-        /// Gets or sets the name of the internal log file.
+        /// Gets or sets a value indicating whether internal messages should be written to the <see cref="System.Diagnostics.Trace"/>.
+        /// </summary>
+        public static bool LogToTrace { get; set; }
+#endif
+
+        /// <summary>
+        /// Gets or sets the file path of the internal log file.
         /// </summary>
         /// <remarks>A value of <see langword="null" /> value disables internal logging to a file.</remarks>
-        public static string LogFile { get; set; }
+        public static string LogFile
+        {
+            get
+            {
+                return _logFile;
+            }
+
+            set
+            {
+                _logFile = value;
+
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
+                if (!string.IsNullOrEmpty(_logFile))
+                {
+                    CreateDirectoriesIfNeeded(_logFile);
+                }
+#endif
+            }
+        }
 
         /// <summary>
         /// Gets or sets the text writer that will receive internal logs.
@@ -102,203 +153,74 @@ namespace NLog.Common
         public static bool IncludeTimestamp { get; set; }
 
         /// <summary>
-        /// Gets a value indicating whether internal log includes Trace messages.
-        /// </summary>
-        public static bool IsTraceEnabled
-        {
-            get { return LogLevel.Trace >= LogLevel; }
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether internal log includes Debug messages.
-        /// </summary>
-        public static bool IsDebugEnabled
-        {
-            get { return LogLevel.Debug >= LogLevel; }
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether internal log includes Info messages.
-        /// </summary>
-        public static bool IsInfoEnabled
-        {
-            get { return LogLevel.Info >= LogLevel; }
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether internal log includes Warn messages.
-        /// </summary>
-        public static bool IsWarnEnabled
-        {
-            get { return LogLevel.Warn >= LogLevel; }
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether internal log includes Error messages.
-        /// </summary>
-        public static bool IsErrorEnabled
-        {
-            get { return LogLevel.Error >= LogLevel; }
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether internal log includes Fatal messages.
-        /// </summary>
-        public static bool IsFatalEnabled
-        {
-            get { return LogLevel.Fatal >= LogLevel; }
-        }
-
-        /// <summary>
-        /// Logs the specified message at the specified level.
+        /// Logs the specified message without an <see cref="Exception"/> at the specified level.
         /// </summary>
         /// <param name="level">Log level.</param>
         /// <param name="message">Message which may include positional parameters.</param>
         /// <param name="args">Arguments to the message.</param>
-        public static void Log(LogLevel level, string message, params object[] args)
+        [StringFormatMethod("message")]
+        public static void Log(LogLevel level, [Localizable(false)] string message, params object[] args)
         {
-            Write(level, message, args);
+            Write(null, level, message, args);
         }
 
         /// <summary>
-        /// Logs the specified message at the specified level.
+        /// Logs the specified message without an <see cref="Exception"/> at the specified level.
         /// </summary>
         /// <param name="level">Log level.</param>
         /// <param name="message">Log message.</param>
         public static void Log(LogLevel level, [Localizable(false)] string message)
         {
-            Write(level, message, null);
+            Write(null, level, message, null);
         }
 
         /// <summary>
-        /// Logs the specified message at the Trace level.
+        /// Logs the specified message with an <see cref="Exception"/> at the specified level.
         /// </summary>
+        /// <param name="ex">Exception to be logged.</param>
+        /// <param name="level">Log level.</param>
         /// <param name="message">Message which may include positional parameters.</param>
         /// <param name="args">Arguments to the message.</param>
-        public static void Trace([Localizable(false)] string message, params object[] args)
+        [StringFormatMethod("message")]
+        public static void Log(Exception ex, LogLevel level, [Localizable(false)] string message, params object[] args)
         {
-            Write(LogLevel.Trace, message, args);
+            Write(ex, level, message, args);
         }
 
         /// <summary>
-        /// Logs the specified message at the Trace level.
+        /// Logs the specified message with an <see cref="Exception"/> at the specified level.
         /// </summary>
+        /// <param name="ex">Exception to be logged.</param>
+        /// <param name="level">Log level.</param>
         /// <param name="message">Log message.</param>
-        public static void Trace([Localizable(false)] string message)
+        public static void Log(Exception ex, LogLevel level, [Localizable(false)] string message)
         {
-            Write(LogLevel.Trace, message, null);
+            Write(ex, level, message, null);
         }
 
         /// <summary>
-        /// Logs the specified message at the Debug level.
+        /// Write to internallogger.
         /// </summary>
-        /// <param name="message">Message which may include positional parameters.</param>
-        /// <param name="args">Arguments to the message.</param>
-        public static void Debug([Localizable(false)] string message, params object[] args)
+        /// <param name="ex">optional exception to be logged.</param>
+        /// <param name="level">level</param>
+        /// <param name="message">message</param>
+        /// <param name="args">optional args for <paramref name="message"/></param>
+        private static void Write([CanBeNull]Exception ex, LogLevel level, string message, [CanBeNull]object[] args)
         {
-            Write(LogLevel.Debug, message, args);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Debug level.
-        /// </summary>
-        /// <param name="message">Log message.</param>
-        public static void Debug([Localizable(false)] string message)
-        {
-            Write(LogLevel.Debug, message, null);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Info level.
-        /// </summary>
-        /// <param name="message">Message which may include positional parameters.</param>
-        /// <param name="args">Arguments to the message.</param>
-        public static void Info([Localizable(false)] string message, params object[] args)
-        {
-            Write(LogLevel.Info, message, args);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Info level.
-        /// </summary>
-        /// <param name="message">Log message.</param>
-        public static void Info([Localizable(false)] string message)
-        {
-            Write(LogLevel.Info, message, null);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Warn level.
-        /// </summary>
-        /// <param name="message">Message which may include positional parameters.</param>
-        /// <param name="args">Arguments to the message.</param>
-        public static void Warn([Localizable(false)] string message, params object[] args)
-        {
-            Write(LogLevel.Warn, message, args);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Warn level.
-        /// </summary>
-        /// <param name="message">Log message.</param>
-        public static void Warn([Localizable(false)] string message)
-        {
-            Write(LogLevel.Warn, message, null);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Error level.
-        /// </summary>
-        /// <param name="message">Message which may include positional parameters.</param>
-        /// <param name="args">Arguments to the message.</param>
-        public static void Error([Localizable(false)] string message, params object[] args)
-        {
-            Write(LogLevel.Error, message, args);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Error level.
-        /// </summary>
-        /// <param name="message">Log message.</param>
-        public static void Error([Localizable(false)] string message)
-        {
-            Write(LogLevel.Error, message, null);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Fatal level.
-        /// </summary>
-        /// <param name="message">Message which may include positional parameters.</param>
-        /// <param name="args">Arguments to the message.</param>
-        public static void Fatal([Localizable(false)] string message, params object[] args)
-        {
-            Write(LogLevel.Fatal, message, args);
-        }
-
-        /// <summary>
-        /// Logs the specified message at the Fatal level.
-        /// </summary>
-        /// <param name="message">Log message.</param>
-        public static void Fatal([Localizable(false)] string message)
-        {
-            Write(LogLevel.Fatal, message, null);
-        }
-
-        private static void Write(LogLevel level, string message, object[] args)
-        {
-            if (level < LogLevel)
+            if (IsSeriousException(ex))
             {
+                //no logging!
                 return;
             }
 
-            if (string.IsNullOrEmpty(LogFile) && !LogToConsole && !LogToConsoleError && LogWriter == null)
+            if (!LoggingEnabled(level))
             {
                 return;
             }
 
             try
             {
-                string formattedMessage = message;
+                var formattedMessage = message;
                 if (args != null)
                 {
                     formattedMessage = string.Format(CultureInfo.InvariantCulture, message, args);
@@ -311,10 +233,16 @@ namespace NLog.Common
                     builder.Append(" ");
                 }
 
-                builder.Append(level.ToString());
+                builder.Append(level);
                 builder.Append(" ");
                 builder.Append(formattedMessage);
-                string msg = builder.ToString();
+                if (ex != null)
+                {
+                    ex.MarkAsLoggedToInternalLogger();
+                    builder.Append(" Exception: ");
+                    builder.Append(ex);
+                }
+                var msg = builder.ToString();
 
                 // log to file
                 var logFile = LogFile;
@@ -330,7 +258,7 @@ namespace NLog.Common
                 var writer = LogWriter;
                 if (writer != null)
                 {
-                    lock (lockObject)
+                    lock (LockObject)
                     {
                         writer.WriteLine(msg);
                     }
@@ -347,19 +275,102 @@ namespace NLog.Common
                 {
                     Console.Error.WriteLine(msg);
                 }
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
+                WriteToTrace(msg);
+#endif
             }
             catch (Exception exception)
             {
-                if (exception.MustBeRethrown())
+                // no log looping.
+                // we have no place to log the message to so we ignore it
+                if (exception.MustBeRethrownImmediately())
                 {
                     throw;
                 }
 
-                // we have no place to log the message to so we ignore it
             }
         }
 
-#if !SILVERLIGHT
+        /// <summary>
+        /// Determine if logging should be avoided because of exception type. 
+        /// </summary>
+        /// <param name="exception">The exception to check.</param>
+        /// <returns><c>true</c> if logging should be avoided; otherwise, <c>false</c>.</returns>
+        private static bool IsSeriousException(Exception exception)
+        {
+            return exception != null && exception.MustBeRethrownImmediately();
+        }
+
+        /// <summary>
+        /// Determine if logging is enabled.
+        /// </summary>
+        /// <param name="logLevel">The <see cref="LogLevel"/> for the log event.</param>
+        /// <returns><c>true</c> if logging is enabled; otherwise, <c>false</c>.</returns>
+        private static bool LoggingEnabled(LogLevel logLevel)
+        {
+            if (logLevel == LogLevel.Off || logLevel < LogLevel)
+            {
+                return false;
+            }
+
+            return !string.IsNullOrEmpty(LogFile) ||
+                   LogToConsole ||
+                   LogToConsoleError ||
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
+                   LogToTrace ||
+#endif
+                   LogWriter != null;
+        }
+
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
+        /// <summary>
+        /// Write internal messages to the <see cref="System.Diagnostics.Trace"/>.
+        /// </summary>
+        /// <param name="message">A message to write.</param>
+        /// <remarks>
+        /// Works when property <see cref="LogToTrace"/> set to true.
+        /// The <see cref="System.Diagnostics.Trace"/> is used in Debug and Relese configuration. 
+        /// The <see cref="System.Diagnostics.Debug"/> works only in Debug configuration and this is reason why is replaced by <see cref="System.Diagnostics.Trace"/>.
+        /// in DEBUG 
+        /// </remarks>
+        private static void WriteToTrace(string message)
+        {
+
+            if (!LogToTrace)
+            {
+                return;
+            }
+            
+            System.Diagnostics.Trace.WriteLine(message, "NLog");
+        }
+
+#endif
+
+        /// <summary>
+        /// Logs the assembly version and file version of the given Assembly.
+        /// </summary>
+        /// <param name="assembly">The assembly to log.</param>
+        public static void LogAssemblyVersion(Assembly assembly)
+        {
+            try
+            {
+#if SILVERLIGHT || __IOS__ || __ANDROID__
+                Info(assembly.FullName);
+#else
+                var fileVersionInfo = FileVersionInfo.GetVersionInfo(assembly.Location);
+                Info("{0}. File version: {1}. Product version: {2}.",
+                    assembly.FullName,
+                    fileVersionInfo.FileVersion,
+                    fileVersionInfo.ProductVersion);
+#endif
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "Error logging version of assembly {0}.", assembly.FullName);
+            }
+        }
+
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
         private static string GetSettingString(string configName, string envName)
         {
             string settingValue = ConfigurationManager.AppSettings[configName];
@@ -371,7 +382,7 @@ namespace NLog.Common
                 }
                 catch (Exception exception)
                 {
-                    if (exception.MustBeRethrown())
+                    if (exception.MustBeRethrownImmediately())
                     {
                         throw;
                     }
@@ -395,7 +406,7 @@ namespace NLog.Common
             }
             catch (Exception exception)
             {
-                if (exception.MustBeRethrown())
+                if (exception.MustBeRethrownImmediately())
                 {
                     throw;
                 }
@@ -418,12 +429,38 @@ namespace NLog.Common
             }
             catch (Exception exception)
             {
-                if (exception.MustBeRethrown())
+                if (exception.MustBeRethrownImmediately())
                 {
                     throw;
                 }
 
                 return defaultValue;
+            }
+        }
+
+        private static void CreateDirectoriesIfNeeded(string filename)
+        {
+            try
+            {
+                if (InternalLogger.LogLevel == NLog.LogLevel.Off)
+                {
+                    return;
+                }
+
+                string parentDirectory = Path.GetDirectoryName(filename);
+                if (!string.IsNullOrEmpty(parentDirectory))
+                {
+                    Directory.CreateDirectory(parentDirectory);
+                }
+            }
+            catch (Exception exception)
+            {
+                Error(exception, "Cannot create needed directories to '{0}'.", filename);
+
+                if (exception.MustBeRethrownImmediately())
+                {
+                    throw;
+                }
             }
         }
 #endif

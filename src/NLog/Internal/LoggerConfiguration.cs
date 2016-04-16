@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,6 +31,8 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
+using System;
+
 namespace NLog.Internal
 {
     /// <summary>
@@ -44,10 +46,21 @@ namespace NLog.Internal
         /// Initializes a new instance of the <see cref="LoggerConfiguration" /> class.
         /// </summary>
         /// <param name="targetsByLevel">The targets by level.</param>
-        public LoggerConfiguration(TargetWithFilterChain[] targetsByLevel)
+        /// <param name="exceptionLoggingOldStyle">  Use the old exception log handling of NLog 3.0? 
+        /// </param>
+        public LoggerConfiguration(TargetWithFilterChain[] targetsByLevel, bool exceptionLoggingOldStyle = false)
         {
             this.targetsByLevel = targetsByLevel;
+#pragma warning disable 618
+            ExceptionLoggingOldStyle = exceptionLoggingOldStyle;
+#pragma warning restore 618
         }
+
+        /// <summary>
+        /// Use the old exception log handling of NLog 3.0? 
+        /// </summary>
+        [Obsolete("This option will be removed in NLog 5")]
+        public bool ExceptionLoggingOldStyle { get; private set; }
 
         /// <summary>
         /// Gets targets for the specified level.
@@ -56,6 +69,11 @@ namespace NLog.Internal
         /// <returns>Chain of targets with attached filters.</returns>
         public TargetWithFilterChain GetTargetsForLevel(LogLevel level)
         {
+            if (level == LogLevel.Off)
+            {
+                return null;
+            }
+
             return this.targetsByLevel[level.Ordinal];
         }
 
@@ -68,6 +86,10 @@ namespace NLog.Internal
         /// </returns>
         public bool IsEnabled(LogLevel level)
         {
+            if (level == LogLevel.Off)
+            {
+                return false;
+            }
             return this.targetsByLevel[level.Ordinal] != null;
         }
     }

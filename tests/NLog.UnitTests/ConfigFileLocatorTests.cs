@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -250,16 +250,15 @@ class C1
 
         public static string RunAndRedirectOutput(string exeFile)
         {
-            var sb = new StringBuilder();
-#if MONO
-            sb.AppendFormat("\"{0}\" ", exeFile);
-#endif
-
             using (var proc = new Process())
-            {
-                proc.StartInfo.Arguments = sb.ToString();
+			{
 #if MONO
+				var sb = new StringBuilder();
+				sb.AppendFormat("\"{0}\" ", exeFile);
+				proc.StartInfo.Arguments = sb.ToString();
                 proc.StartInfo.FileName = "mono";
+				proc.StartInfo.StandardOutputEncoding = Encoding.UTF8;
+				proc.StartInfo.StandardErrorEncoding = Encoding.UTF8;
 #else
                 proc.StartInfo.FileName = exeFile;
 #endif

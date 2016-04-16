@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,6 +31,7 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
+
 using JetBrains.Annotations;
 
 #if !SILVERLIGHT
@@ -43,6 +44,7 @@ namespace NLog.Targets
     using System.Net;
     using System.Net.Mail;
     using System.Text;
+    using System.IO;
     using NLog.Common;
     using NLog.Config;
     using NLog.Internal;
@@ -148,7 +150,7 @@ namespace NLog.Targets
         /// </summary>
         /// <remarks>Alias for the <c>Layout</c> property.</remarks>
         /// <docgen category='Message Options' order='6' />
-        [DefaultValue("${message}")]
+        [DefaultValue("${message}${newline}")]
         public Layout Body
         {
             get { return this.Layout; }
@@ -173,7 +175,6 @@ namespace NLog.Targets
         /// Gets or sets SMTP Server to be used for sending.
         /// </summary>
         /// <docgen category='SMTP Options' order='10' />
-        [RequiredParameter]
         public Layout SmtpServer { get; set; }
 
         /// <summary>
@@ -198,7 +199,7 @@ namespace NLog.Targets
         /// <summary>
         /// Gets or sets a value indicating whether SSL (secure sockets layer) should be used when communicating with SMTP server.
         /// </summary>
-        /// <docgen category='SMTP Options' order='14' />
+        /// <docgen category='SMTP Options' order='14' />.
         [DefaultValue(false)]
         public bool EnableSsl { get; set; }
 
@@ -215,6 +216,20 @@ namespace NLog.Targets
         /// <docgen category='SMTP Options' order='16' />
         [DefaultValue(false)]
         public bool UseSystemNetMailSettings { get; set; }
+
+        /// <summary>
+        /// Specifies how outgoing email messages will be handled.
+        /// </summary>
+        /// <docgen category='SMTP Options' order='18' />
+        [DefaultValue(SmtpDeliveryMethod.Network)]
+        public SmtpDeliveryMethod DeliveryMethod { get; set; }
+
+        /// <summary>
+        /// Gets or sets the folder where applications save mail messages to be processed by the local SMTP server.
+        /// </summary>
+        /// <docgen category='SMTP Options' order='17' />
+        [DefaultValue(null)]
+        public string PickupDirectoryLocation { get; set; }
 
         /// <summary>
         /// Gets or sets the priority used for sending mails.
@@ -264,6 +279,18 @@ namespace NLog.Targets
         }
 
         /// <summary>
+        /// Initializes the target. Can be used by inheriting classes
+        /// to initialize logging.
+        /// </summary>
+        protected override void InitializeTarget()
+        {
+
+            CheckRequiredParameters();
+
+            base.InitializeTarget();
+        }
+
+        /// <summary>
         /// Create mail and send with SMTP
         /// </summary>
         /// <param name="events">event printed in the body of the event</param>
@@ -306,7 +333,7 @@ namespace NLog.Targets
             catch (Exception exception)
             {
                 //always log
-                InternalLogger.Error(exception.ToString());
+                InternalLogger.Error(exception, "Error sending mail.");
 
                 if (exception.MustBeRethrown())
                 {
@@ -361,34 +388,101 @@ namespace NLog.Targets
         }
 
         /// <summary>
-        /// Set propertes of <paramref name="client"/>
+        /// Set properties of <paramref name="client"/>
         /// </summary>
         /// <param name="lastEvent">last event for username/password</param>
         /// <param name="client">client to set properties on</param>
-        private void ConfigureMailClient(LogEventInfo lastEvent, ISmtpClient client)
+        internal void ConfigureMailClient(LogEventInfo lastEvent, ISmtpClient client)
         {
-            var renderedSmtpServer = this.SmtpServer.Render(lastEvent);
-            if (string.IsNullOrEmpty(renderedSmtpServer))
+            CheckRequiredParameters();
+
+            if (this.SmtpServer == null && string.IsNullOrEmpty(this.PickupDirectoryLocation))
+            {
+                throw new NLogRuntimeException(string.Format(RequiredPropertyIsEmptyFormat, "SmtpServer/PickupDirectoryLocation"));
+            }
+
+            if (this.DeliveryMethod == SmtpDeliveryMethod.Network && this.SmtpServer == null)
             {
                 throw new NLogRuntimeException(string.Format(RequiredPropertyIsEmptyFormat, "SmtpServer"));
             }
-            client.Host = renderedSmtpServer;
-            client.Port = this.SmtpPort;
-            client.EnableSsl = this.EnableSsl;
+            
+            if (this.DeliveryMethod == SmtpDeliveryMethod.SpecifiedPickupDirectory && string.IsNullOrEmpty(this.PickupDirectoryLocation))
+            {
+                throw new NLogRuntimeException(string.Format(RequiredPropertyIsEmptyFormat, "PickupDirectoryLocation"));
+            }
+
+            if (this.SmtpServer != null && this.DeliveryMethod == SmtpDeliveryMethod.Network)
+            {
+                var renderedSmtpServer = this.SmtpServer.Render(lastEvent);
+                if (string.IsNullOrEmpty(renderedSmtpServer))
+                {
+                    throw new NLogRuntimeException(string.Format(RequiredPropertyIsEmptyFormat, "SmtpServer" ));
+                }
+
+                client.Host = renderedSmtpServer;
+                client.Port = this.SmtpPort;
+                client.EnableSsl = this.EnableSsl;
+
+                if (this.SmtpAuthentication == SmtpAuthenticationMode.Ntlm)
+                {
+                    InternalLogger.Trace("  Using NTLM authentication.");
+                    client.Credentials = CredentialCache.DefaultNetworkCredentials;
+                }
+                else if (this.SmtpAuthentication == SmtpAuthenticationMode.Basic)
+                {
+                    string username = this.SmtpUserName.Render(lastEvent);
+                    string password = this.SmtpPassword.Render(lastEvent);
+
+                    InternalLogger.Trace("  Using basic authentication: Username='{0}' Password='{1}'", username, new string('*', password.Length));
+                    client.Credentials = new NetworkCredential(username, password);
+                }
+
+            }
+
+            if (!string.IsNullOrEmpty(this.PickupDirectoryLocation) && this.DeliveryMethod == SmtpDeliveryMethod.SpecifiedPickupDirectory)
+            {
+                client.PickupDirectoryLocation = ConvertDirectoryLocation(PickupDirectoryLocation);
+            }
+
+            // In case DeliveryMethod = PickupDirectoryFromIis we will not require Host nor PickupDirectoryLocation
+            client.DeliveryMethod = this.DeliveryMethod;
             client.Timeout = this.Timeout;
 
-            if (this.SmtpAuthentication == SmtpAuthenticationMode.Ntlm)
-            {
-                InternalLogger.Trace("  Using NTLM authentication.");
-                client.Credentials = CredentialCache.DefaultNetworkCredentials;
-            }
-            else if (this.SmtpAuthentication == SmtpAuthenticationMode.Basic)
-            {
-                string username = this.SmtpUserName.Render(lastEvent);
-                string password = this.SmtpPassword.Render(lastEvent);
+            
+        }
 
-                InternalLogger.Trace("  Using basic authentication: Username='{0}' Password='{1}'", username, new string('*', password.Length));
-                client.Credentials = new NetworkCredential(username, password);
+        /// <summary>
+        /// Handle <paramref name="pickupDirectoryLocation"/> if it is a virtual directory.
+        /// </summary>
+        /// <param name="pickupDirectoryLocation"></param>
+        /// <returns></returns>
+        internal static string ConvertDirectoryLocation(string pickupDirectoryLocation)
+        {
+            const string virtualPathPrefix = "~/";
+            if (!pickupDirectoryLocation.StartsWith(virtualPathPrefix))
+            {
+                return pickupDirectoryLocation;
+            }
+
+            // Support for Virtual Paths
+            var root = AppDomain.CurrentDomain.BaseDirectory;
+            var directory = pickupDirectoryLocation.Substring(virtualPathPrefix.Length).Replace('/', Path.DirectorySeparatorChar);
+            var pickupRoot = Path.Combine(root, directory);
+            return pickupRoot;
+        }
+
+        private void CheckRequiredParameters()
+        {
+            if (!this.UseSystemNetMailSettings && this.SmtpServer == null && this.DeliveryMethod == SmtpDeliveryMethod.Network)
+            {
+                throw new NLogConfigurationException(
+                    string.Format("The MailTarget's '{0}' properties are not set - but needed because useSystemNetMailSettings=false and DeliveryMethod=Network. The email message will not be sent.", "SmtpServer"));
+            }
+
+            if (!this.UseSystemNetMailSettings && string.IsNullOrEmpty(this.PickupDirectoryLocation) && this.DeliveryMethod == SmtpDeliveryMethod.SpecifiedPickupDirectory)
+            {
+                throw new NLogConfigurationException(
+                    string.Format("The MailTarget's '{0}' properties are not set - but needed because useSystemNetMailSettings=false and DeliveryMethod=SpecifiedPickupDirectory. The email message will not be sent.", "PickupDirectoryLocation"));
             }
         }
 

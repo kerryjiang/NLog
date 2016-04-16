@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -44,6 +44,7 @@ namespace NLog.UnitTests.Targets
     using NLog.Layouts;
     using NLog.Targets;
     using Xunit;
+	  using System.IO;
 
     public class MailTargetTests : NLogTestBase
     {
@@ -437,7 +438,7 @@ namespace NLog.UnitTests.Targets
 
             var messageSent = mmt.CreatedMocks[0].MessagesSent[0];
             Assert.True(messageSent.IsBodyHtml);
-            var lines = messageSent.Body.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var lines = messageSent.Body.Split(new[] {Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
             Assert.True(lines.Length == 3);
         }
 
@@ -635,7 +636,7 @@ namespace NLog.UnitTests.Targets
         }
 
         [Fact]
-        public void MailTargetInitialize_WithoutSpecifiedSmtpServer_ThrowsConfigException()
+        public void MailTargetInitialize_WithoutSpecifiedSmtpServer_should_not_ThrowsConfigException()
         {
             var mmt = new MockMailTarget
             {
@@ -643,9 +644,108 @@ namespace NLog.UnitTests.Targets
                 To = "bar@bar.com",
                 Subject = "Hello from NLog",
                 SmtpPort = 27,
-                Body = "${level} ${logger} ${message}"
+                Body = "${level} ${logger} ${message}",
+                UseSystemNetMailSettings = true
+            };
+
+        }
+
+        [Fact]
+        public void MailTargetInitialize_WithoutSpecifiedSmtpServer_ThrowsConfigException_if_UseSystemNetMailSettings()
+        {
+            var mmt = new MockMailTarget
+            {
+                From = "foo@bar.com",
+                To = "bar@bar.com",
+                Subject = "Hello from NLog",
+                SmtpPort = 27,
+                Body = "${level} ${logger} ${message}",
+                UseSystemNetMailSettings = false
             };
             Assert.Throws<NLogConfigurationException>(() => mmt.Initialize(null));
+        }
+
+
+
+        /// <summary>
+        /// Test for https://github.com/NLog/NLog/issues/690
+        /// </summary>
+        [Fact]
+        public void MailTarget_UseSystemNetMailSettings_False_Override_ThrowsNLogRuntimeException_if_DeliveryMethodNotSpecified()
+        {
+            var inConfigVal = @"C:\config";
+            var mmt = new MockMailTarget(inConfigVal)
+            {
+                From = "foo@bar.com",
+                To = "bar@bar.com",
+                Subject = "Hello from NLog",
+                SmtpPort = 27,
+                Body = "${level} ${logger} ${message}",
+                PickupDirectoryLocation = @"C:\TEMP",
+                UseSystemNetMailSettings = false
+            };
+
+            Assert.Throws<NLogRuntimeException>(() => mmt.ConfigureMailClient());
+        }
+
+        /// <summary>
+        /// Test for https://github.com/NLog/NLog/issues/690
+        /// </summary>
+        [Fact]
+        public void MailTarget_UseSystemNetMailSettings_False_Override_DeliveryMethod_SpecifiedDeliveryMethod()
+        {
+            var inConfigVal = @"C:\config";
+            var mmt = new MockMailTarget(inConfigVal)
+            {
+                From = "foo@bar.com",
+                To = "bar@bar.com",
+                Subject = "Hello from NLog",
+                SmtpPort = 27,
+                Body = "${level} ${logger} ${message}",
+                PickupDirectoryLocation = @"C:\TEMP",
+                UseSystemNetMailSettings = false,
+                DeliveryMethod = SmtpDeliveryMethod.SpecifiedPickupDirectory
+            };
+            mmt.ConfigureMailClient();
+            Assert.NotEqual(mmt.PickupDirectoryLocation, inConfigVal);
+        }
+
+        [Fact]
+        public void MailTarget_UseSystemNetMailSettings_True()
+        {
+            var inConfigVal = @"C:\config";
+            var mmt = new MockMailTarget(inConfigVal)
+            {
+                From = "foo@bar.com",
+                To = "bar@bar.com",
+                Subject = "Hello from NLog",
+                Body = "${level} ${logger} ${message}",
+                UseSystemNetMailSettings = true
+            };
+            mmt.ConfigureMailClient();
+
+            Assert.Equal(mmt.SmtpClientPickUpDirectory, inConfigVal);
+        }
+    
+        [Fact]
+        public void MailTarget_UseSystemNetMailSettings_True_WithVirtualPath()
+        {
+            var inConfigVal = @"~/App_Data/Mail";
+            var mmt = new MockMailTarget(inConfigVal)
+            {
+                From = "foo@bar.com",
+                To = "bar@bar.com",
+                Subject = "Hello from NLog",
+                Body = "${level} ${logger} ${message}",
+                UseSystemNetMailSettings = false,
+                PickupDirectoryLocation = inConfigVal,
+                DeliveryMethod = SmtpDeliveryMethod.SpecifiedPickupDirectory
+            };
+            mmt.ConfigureMailClient();
+            
+            Assert.NotEqual(inConfigVal, mmt.SmtpClientPickUpDirectory);
+            var separator = Path.DirectorySeparatorChar;
+            Assert.Contains(string.Format("{0}App_Data{0}Mail", separator), mmt.SmtpClientPickUpDirectory);
         }
 
         [Fact]
@@ -679,9 +779,12 @@ namespace NLog.UnitTests.Targets
                 this.MessagesSent = new List<MailMessage>();
             }
 
+            public SmtpDeliveryMethod DeliveryMethod { get; set; }
             public string Host { get; set; }
             public int Port { get; set; }
             public int Timeout { get; set; }
+            public string PickupDirectoryLocation { get; set; }
+
 
             public ICredentialsByHost Credentials { get; set; }
             public bool EnableSsl { get; set; }
@@ -689,9 +792,9 @@ namespace NLog.UnitTests.Targets
 
             public void Send(MailMessage msg)
             {
-                if (string.IsNullOrEmpty(this.Host))
+                if (string.IsNullOrEmpty(this.Host) && string.IsNullOrEmpty(this.PickupDirectoryLocation))
                 {
-                    throw new InvalidOperationException("Host is null or empty.");
+                    throw new InvalidOperationException("[Host/Pickup directory] is null or empty.");
                 }
                 this.MessagesSent.Add(msg);
                 if (Host == "ERROR")
@@ -699,7 +802,6 @@ namespace NLog.UnitTests.Targets
                     throw new InvalidOperationException("Some SMTP error.");
                 }
             }
-
             public void Dispose()
             {
             }
@@ -707,15 +809,67 @@ namespace NLog.UnitTests.Targets
 
         public class MockMailTarget : MailTarget
         {
+            private const string RequiredPropertyIsEmptyFormat = "After the processing of the MailTarget's '{0}' property it appears to be empty. The email message will not be sent.";
+
+            public MockSmtpClient Client;
+
+            public MockMailTarget()
+            {
+                Client = new MockSmtpClient();
+            }
+
+            public MockMailTarget(string configPickUpdirectory)
+            {
+                Client = new MockSmtpClient
+                {
+                    PickupDirectoryLocation = configPickUpdirectory
+                };
+
+            }
+
+
             public List<MockSmtpClient> CreatedMocks = new List<MockSmtpClient>();
 
             internal override ISmtpClient CreateSmtpClient()
             {
-                var mock = new MockSmtpClient();
-                CreatedMocks.Add(mock);
-                return mock;
+                var client = new MockSmtpClient();
+
+                CreatedMocks.Add(client);
+
+                return client;
             }
+
+            public void ConfigureMailClient()
+            {
+                if (UseSystemNetMailSettings) return;
+
+                if (this.SmtpServer == null && string.IsNullOrEmpty(this.PickupDirectoryLocation))
+                {
+                    throw new NLogRuntimeException(string.Format(RequiredPropertyIsEmptyFormat, "SmtpServer/PickupDirectoryLocation"));
+                }
+
+                if (this.DeliveryMethod == SmtpDeliveryMethod.Network && this.SmtpServer == null)
+                {
+                    throw new NLogRuntimeException(string.Format(RequiredPropertyIsEmptyFormat, "SmtpServer"));
+                }
+
+                if (this.DeliveryMethod == SmtpDeliveryMethod.SpecifiedPickupDirectory && string.IsNullOrEmpty(this.PickupDirectoryLocation))
+                {
+                    throw new NLogRuntimeException(string.Format(RequiredPropertyIsEmptyFormat, "PickupDirectoryLocation"));
+                }
+
+                if (!string.IsNullOrEmpty(this.PickupDirectoryLocation) && this.DeliveryMethod == SmtpDeliveryMethod.SpecifiedPickupDirectory)
+                {
+                    Client.PickupDirectoryLocation = ConvertDirectoryLocation(PickupDirectoryLocation);
+                }
+
+                Client.DeliveryMethod = this.DeliveryMethod;
+            }
+
+            public string SmtpClientPickUpDirectory { get { return Client.PickupDirectoryLocation; } }
         }
+
+
     }
 }
 

@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -176,8 +176,13 @@ namespace NLog.Targets.Wrappers
         /// </summary>
         protected override void InitializeTarget()
         {
+            if (this.TimeToSleepBetweenBatches <= 0) {
+                throw new NLogConfigurationException("The AysncTargetWrapper\'s TimeToSleepBetweenBatches property must be > 0");
+            }
+
             base.InitializeTarget();
             this.RequestQueue.Clear();
+            InternalLogger.Trace("AsyncWrapper '{0}': start timer", Name);
             this.lazyWriterTimer = new Timer(this.ProcessPendingEvents, null, Timeout.Infinite, Timeout.Infinite);
             this.StartLazyWriterTimer();
         }
@@ -212,7 +217,7 @@ namespace NLog.Targets.Wrappers
         }
 
         /// <summary>
-        /// Starts the lazy writer thread.
+        /// Stops the lazy writer thread.
         /// </summary>
         protected virtual void StopLazyWriterThread()
         {
@@ -255,14 +260,21 @@ namespace NLog.Targets.Wrappers
 
             try
             {
+
+                if (this.WrappedTarget == null)
+                {
+                    InternalLogger.Error("AsyncWrapper '{0}': WrappedTarget is NULL", Name);
+                    return;
+                }
+
                 foreach (var continuation in continuations)
                 {
                     int count = this.BatchSize;
                     if (continuation != null)
                     {
                         count = this.RequestQueue.RequestCount;
-                        InternalLogger.Trace("Flushing {0} events.", count);
                     }
+                    InternalLogger.Trace("AsyncWrapper '{0}': Flushing {1} events.", Name, count);
 
                     if (this.RequestQueue.RequestCount == 0)
                     {
@@ -288,12 +300,13 @@ namespace NLog.Targets.Wrappers
             }
             catch (Exception exception)
             {
+                InternalLogger.Error(exception, "AsyncWrapper '{0}': Error in lazy writer timer procedure.", Name);
+
                 if (exception.MustBeRethrown())
                 {
                     throw;
                 }
 
-                InternalLogger.Error("Error in lazy writer timer procedure: {0}", exception);
             }
             finally
             {

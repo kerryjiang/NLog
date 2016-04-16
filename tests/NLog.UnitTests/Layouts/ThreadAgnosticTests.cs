@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -49,9 +49,9 @@ namespace NLog.UnitTests.Layouts
             {
                 if (t.Namespace == typeof(WrapperLayoutRendererBase).Namespace)
                 {
-                    if (t.IsAbstract)
+                    if (t.IsAbstract || t.IsEnum || t.IsNestedPrivate)
                     {
-                        // skip non-concrete types
+                        // skip non-concrete types, enumerations, and private nested types
                         continue;
                     }
 

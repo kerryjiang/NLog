@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -51,9 +51,9 @@ namespace NLog.UnitTests
             LogFactory lf = new LogFactory();
 
             MyLogger l1 = (MyLogger)lf.GetLogger("AAA", typeof(MyLogger));
-            MyLogger l2 = (MyLogger)lf.GetLogger("AAA", typeof(MyLogger));
+            MyLogger l2 = lf.GetLogger<MyLogger>("AAA");
             ILogger l3 = lf.GetLogger("AAA", typeof(Logger));
-            ILogger l4 = lf.GetLogger("AAA", typeof(Logger));
+            ILogger l4 = lf.GetLogger<Logger>("AAA");
             ILogger l5 = lf.GetLogger("AAA");
             ILogger l6 = lf.GetLogger("AAA");
 
@@ -74,9 +74,9 @@ namespace NLog.UnitTests
             LogFactory lf = new LogFactory();
 
             MyLogger l1 = (MyLogger)lf.GetCurrentClassLogger(typeof(MyLogger));
-            MyLogger l2 = (MyLogger)lf.GetCurrentClassLogger(typeof(MyLogger));
+            MyLogger l2 = lf.GetCurrentClassLogger<MyLogger>();
             ILogger l3 = lf.GetCurrentClassLogger(typeof(Logger));
-            ILogger l4 = lf.GetCurrentClassLogger(typeof(Logger));
+            ILogger l4 = lf.GetCurrentClassLogger<Logger>();
             ILogger l5 = lf.GetCurrentClassLogger();
             ILogger l6 = lf.GetCurrentClassLogger();
 
@@ -121,44 +121,37 @@ namespace NLog.UnitTests
 
         public class InvalidLogger
         {
-           private InvalidLogger()
-           {
-	       }
+            private InvalidLogger()
+            {
+            }
         }
-        
+
+
         [Fact]
-        public void InvalidLoggerConfiguration_ThrowsConfigurationException_IfThrowExceptionsFlagIsSet()
+        public void InvalidLoggerConfiguration_ThrowsConfigurationException_isFalse()
         {
-            bool ExceptionThrown = false;
-            try 
-            {
-                LogManager.ThrowExceptions = false;
-                LogManager.GetCurrentClassLogger(typeof(InvalidLogger));
-            }
-            catch (NLogConfigurationException)
-            {
-                ExceptionThrown = true;
-            }
-            Assert.True(ExceptionThrown);
+            InvalidLoggerConfiguration_ThrowsConfigurationException(false, true);
         }
-        
+
+
         [Fact]
-        public void InvalidLoggerConfiguration_ThrowsConfigurationException_IfThrowExceptionsFlagIsNotSet()
+        public void InvalidLoggerConfiguration_ThrowsConfigurationException_isTrue()
         {
-            bool ExceptionThrown = false;
-            try 
-            {
-                LogManager.ThrowExceptions = true;
-                LogManager.GetCurrentClassLogger(typeof(InvalidLogger));
-            }
-            catch (NLogConfigurationException)
-            {
-                ExceptionThrown = true;
-            }
-            
-            Assert.True(ExceptionThrown);
-            
+            InvalidLoggerConfiguration_ThrowsConfigurationException(true, null);
         }
+
+        private void InvalidLoggerConfiguration_ThrowsConfigurationException(bool throwExceptions, bool? throwConfigExceptions)
+        {
+            Assert.Throws<NLogConfigurationException>(() =>
+            {
+                LogManager.ThrowExceptions = throwExceptions;
+                LogManager.ThrowConfigExceptions = throwConfigExceptions;
+                LogManager.GetCurrentClassLogger(typeof(InvalidLogger));
+            });
+
+        }
+
+
 
         public class MyLogger : Logger
         {

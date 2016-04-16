@@ -52,12 +52,30 @@
     <LastGenOutput>Logger1.cs</LastGenOutput>
   </Customize>
 
+  <FileSet Name="InternalLogger.tt-result">
+    <Include File="Common\InternalLogger-generated.cs" />
+  </FileSet>
+  <Customize FileSet="InternalLogger.tt-result" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <AutoGen>True</AutoGen>
+    <DesignTime>True</DesignTime>
+    <DependentUpon>InternalLogger.tt</DependentUpon>
+  </Customize>
+
+  <FileSet Name="InternalLogger.tt">
+    <Include File="Common\InternalLogger.tt" />
+  </FileSet>
+  <Customize FileSet="InternalLogger.tt" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <Generator>TextTemplatingFileGenerator</Generator>
+    <LastGenOutput>InternalLogger-generated.cs</LastGenOutput>
+  </Customize>
+
   <Project File="NLog.sl4.csproj">
     <ItemGroup Name="Compile">
       <FileSet Include="AllFilesToCompile" />
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
   </Project>
 
@@ -67,27 +85,17 @@
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
   </Project>
 
-  <Project File="NLog.mono2.csproj">
+  <Project File="NLog.mono.csproj">
     <ItemGroup Name="Compile">
       <FileSet Include="AllFilesToCompile" />
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
-    </ItemGroup>
-    <ItemGroup Name="EmbeddedResource">
-      <FileSet Include="AllResources" />
-    </ItemGroup>
-  </Project>
-
-  <Project File="NLog.monodevelop.csproj">
-    <ItemGroup Name="Compile">
-      <FileSet Include="AllFilesToCompile" />
-    </ItemGroup>
-    <ItemGroup Name="None" KeepOldFiles="true">
-      <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
     <ItemGroup Name="EmbeddedResource">
       <FileSet Include="AllResources" />
@@ -100,6 +108,7 @@
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
     <ItemGroup Name="EmbeddedResource">
       <FileSet Include="AllResources" />
@@ -112,6 +121,7 @@
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
     <ItemGroup Name="EmbeddedResource">
       <FileSet Include="AllResources" />
@@ -124,6 +134,33 @@
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
+    </ItemGroup>
+    <ItemGroup Name="EmbeddedResource">
+      <FileSet Include="AllResources" />
+    </ItemGroup>
+  </Project>
+
+  <Project File="NLog.Xamarin.Android.csproj">
+    <ItemGroup Name="Compile">
+      <FileSet Include="AllFilesToCompile" />
+    </ItemGroup>
+    <ItemGroup Name="None" KeepOldFiles="true">
+      <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
+    </ItemGroup>
+    <ItemGroup Name="EmbeddedResource">
+      <FileSet Include="AllResources" />
+    </ItemGroup>
+  </Project>
+
+  <Project File="NLog.Xamarin.iOS.csproj">
+    <ItemGroup Name="Compile">
+      <FileSet Include="AllFilesToCompile" />
+    </ItemGroup>
+    <ItemGroup Name="None" KeepOldFiles="true">
+      <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
     <ItemGroup Name="EmbeddedResource">
       <FileSet Include="AllResources" />
@@ -136,8 +173,8 @@
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
-
   </Project>
 
   <Project File="NLog.wp71.csproj">
@@ -146,8 +183,21 @@
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
+  </Project>
 
+  <Project File="NLog.wp8.csproj">
+    <ItemGroup Name="Compile">
+      <FileSet Include="AllFilesToCompile" />
+    </ItemGroup>
+    <ItemGroup Name="None" KeepOldFiles="true">
+      <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
+    </ItemGroup>
+    <ItemGroup Name="EmbeddedResource">
+      <FileSet Include="AllResources" />
+    </ItemGroup>
   </Project>
 
   <Project File="NLog.doc.csproj">
@@ -156,6 +206,7 @@
     </ItemGroup>
     <ItemGroup Name="None" KeepOldFiles="true">
       <FileSet Include="Logger.tt" />
+      <FileSet Include="InternalLogger.tt" />
     </ItemGroup>
     <ItemGroup Name="EmbeddedResource">
       <FileSet Include="AllResources" />

@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -35,7 +35,6 @@ using System.Security;
 
 namespace NLog.Internal.FileAppenders
 {
-    using System;
     using System.IO;
 
     /// <summary>
@@ -59,15 +58,19 @@ namespace NLog.Internal.FileAppenders
         public CountingSingleProcessFileAppender(string fileName, ICreateFileParameters parameters)
             : base(fileName, parameters)
         {
-            var fi = new FileInfo(fileName);
-            if (fi.Exists)
+            var fileInfo = new FileInfo(fileName);
+            if (fileInfo.Exists)
             {
-                this.FileTouched(fi.LastWriteTimeUtc);
-                this.currentFileLength = fi.Length;
+#if !SILVERLIGHT
+                FileTouched(fileInfo.LastWriteTimeUtc);
+#else
+                FileTouched(fileInfo.LastWriteTime);
+#endif
+                this.currentFileLength = fileInfo.Length;
             }
             else
             {
-                this.FileTouched();
+                FileTouched();
                 this.currentFileLength = 0;
             }
 
@@ -97,20 +100,16 @@ namespace NLog.Internal.FileAppenders
             }
 
             this.file.Flush();
-            this.FileTouched();
+            FileTouched();
         }
 
         /// <summary>
         /// Gets the file info.
         /// </summary>
-        /// <param name="lastWriteTime">The last file write time. The value must be of UTC kind.</param>
-        /// <param name="fileLength">Length of the file.</param>
-        /// <returns>True if the operation succeeded, false otherwise.</returns>
-        public override bool GetFileInfo(out DateTime lastWriteTime, out long fileLength)
+        /// <returns>The file characteristics, if the file information was retrieved successfully, otherwise null.</returns>
+        public override FileCharacteristics GetFileCharacteristics()
         {
-            lastWriteTime = this.LastWriteTime;
-            fileLength = this.currentFileLength;
-            return true;
+            return new FileCharacteristics(this.CreationTime, this.LastWriteTime, this.currentFileLength);
         }
 
         /// <summary>
@@ -126,7 +125,7 @@ namespace NLog.Internal.FileAppenders
 
             this.currentFileLength += bytes.Length;
             this.file.Write(bytes, 0, bytes.Length);
-            this.FileTouched();
+            FileTouched();
         }
 
         /// <summary>

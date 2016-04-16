@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -33,6 +33,8 @@
 
 namespace NLog.UnitTests.Config
 {
+    using System;
+    using NLog.Config;
     using NLog.LayoutRenderers;
     using NLog.Layouts;
     using NLog.Targets;
@@ -68,8 +70,13 @@ namespace NLog.UnitTests.Config
             Assert.Equal("]]", lr3.Text);
         }
 
-        [Fact(Skip = "Bug? Dunno, but it's bad")]
-        public void VariablesTest_string_should_not_exand()
+#if !SILVERLIGHT
+
+        /// <summary>
+        /// Expand of property which are not layoutable <see cref="Layout"/>, but still get expanded.
+        /// </summary>
+        [Fact(Skip = "It's unclear if this is a bug of a feature. Probably this will a config setting in the feature")]
+        public void VariablesTest_string_expanding()
         {
             var configuration = CreateConfigurationFromString(@"
 <nlog throwExceptions='true'>
@@ -84,6 +91,64 @@ namespace NLog.UnitTests.Config
             //dont change the ${test} as it isn't a Layout
             Assert.Equal("${test}", target.Source);
 
+        }
+#endif
+
+
+
+        [Fact]
+        public void Xml_configuration_returns_defined_variables()
+        {
+            var configuration = CreateConfigurationFromString(@"
+<nlog throwExceptions='true'>
+    <variable name='prefix' value='[[' />
+    <variable name='suffix' value=']]' />
+
+    <targets>
+        <target name='d1' type='Debug' layout='${prefix}${message}${suffix}' />
+    </targets>
+</nlog>");
+
+            LogManager.Configuration = configuration;
+
+            Assert.Equal("[[", LogManager.Configuration.Variables["prefix"].OriginalText);
+            Assert.Equal("]]", LogManager.Configuration.Variables["suffix"].OriginalText);
+        }
+
+        [Fact]
+        public void NLogConfigurationExceptionShouldThrown_WhenVariableNodeIsWrittenToWrongPlace()
+        {
+            LogManager.ThrowConfigExceptions = true;
+            const string configurationString_VariableNodeIsInnerTargets =
+                    @"<nlog>  
+	                        <targets>
+			                    <variable name='variableOne' value='${longdate:universalTime=True}Z | ${message}'/>
+                    			<target name='d1' type='Debug' layout='${variableOne}' />
+	                        </targets>
+                            <rules>
+			                    <logger name='*' minlevel='Debug' writeTo='d1'/>
+                            </rules>
+                    </nlog>";
+
+
+            const string configurationString_VariableNodeIsAfterTargets =
+                    @"<nlog>  
+	                        <targets>
+			                    <target name='d1' type='Debug' layout='${variableOne}' />
+	                        </targets>
+                            <variable name='variableOne' value='${longdate:universalTime=True}Z | ${message}'/>	
+                            <rules>
+			                    <logger name='*' minlevel='Debug' writeTo='d1'/>
+                            </rules>
+                    </nlog>";
+
+            NLogConfigurationException nlogConfEx_ForInnerTargets = Assert.Throws<NLogConfigurationException>(
+                () => CreateConfigurationFromString(configurationString_VariableNodeIsInnerTargets)
+                );
+
+            NLogConfigurationException nlogConfExForAfterTargets = Assert.Throws<NLogConfigurationException>(
+                () => CreateConfigurationFromString(configurationString_VariableNodeIsAfterTargets)
+                );
         }
     }
 }

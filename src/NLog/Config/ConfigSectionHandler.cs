@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,7 +31,7 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
-#if !SILVERLIGHT
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
 
 namespace NLog.Config
 {
@@ -57,12 +57,9 @@ namespace NLog.Config
             }
             catch (Exception exception)
             {
-                if (exception.MustBeRethrown())
-                {
-                    throw;
-                }
-
-                InternalLogger.Error("ConfigSectionHandler error: {0}", exception);
+                InternalLogger.Error(exception, "ConfigSectionHandler error.");
+              
+                //TODO NLog 5, check MustBeRethrown()
                 throw;
             }
         }

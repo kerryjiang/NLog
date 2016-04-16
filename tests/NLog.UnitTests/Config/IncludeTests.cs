@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -30,6 +30,11 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF 
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
+
+using System.Diagnostics;
+using System.Linq;
+using System.Threading;
+using NLog.Targets;
 
 namespace NLog.UnitTests.Config
 {
@@ -79,7 +84,6 @@ namespace NLog.UnitTests.Config
             }
             finally
             {
-                LogManager.Configuration = null;
 #if !SILVERLIGHT
                 if (Directory.Exists(tempPath))
                     Directory.Delete(tempPath, true);
@@ -93,6 +97,7 @@ namespace NLog.UnitTests.Config
 #if SILVERLIGHT
             string fileToLoad = "ConfigFiles/referencemissingfile.nlog";
 #else
+            LogManager.ThrowConfigExceptions = true;
             string tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
             Directory.CreateDirectory(tempPath);
 
@@ -149,7 +154,6 @@ namespace NLog.UnitTests.Config
             }
             finally
             {
-                LogManager.Configuration = null;
 #if !SILVERLIGHT
                 if (Directory.Exists(tempPath))
                     Directory.Delete(tempPath, true);

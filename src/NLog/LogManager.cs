@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -37,14 +37,15 @@ namespace NLog
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Globalization;
+    using System.Linq;
     using System.Reflection;
     using System.Runtime.CompilerServices;
     using System.Threading;
-    using System.Linq;
-    using Internal.Fakeables;
+
     using NLog.Common;
     using NLog.Config;
     using NLog.Internal;
+    using NLog.Internal.Fakeables;
 
     /// <summary>
     /// Creates and manages instances of <see cref="T:NLog.Logger" /> objects.
@@ -71,7 +72,7 @@ namespace NLog
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1810:InitializeReferenceTypeStaticFieldsInline", Justification = "Significant logic in .cctor()")]
         static LogManager()
         {
-            SetupTerminationEvents();            
+            SetupTerminationEvents();
         }
 #endif
 
@@ -83,6 +84,14 @@ namespace NLog
         }
 
         /// <summary>
+        /// Gets the default <see cref="NLog.LogFactory" /> instance.
+        /// </summary>
+        internal static LogFactory LogFactory
+        {
+            get { return factory; }
+        }
+
+        /// <summary>
         /// Occurs when logging <see cref="Configuration" /> changes.
         /// </summary>
         public static event EventHandler<LoggingConfigurationChangedEventArgs> ConfigurationChanged
@@ -91,7 +100,7 @@ namespace NLog
             remove { factory.ConfigurationChanged -= value; }
         }
 
-#if !SILVERLIGHT
+#if !SILVERLIGHT && !__IOS__ && !__ANDROID__
         /// <summary>
         /// Occurs when logging <see cref="Configuration" /> gets reloaded.
         /// </summary>
@@ -111,6 +120,21 @@ namespace NLog
             set { factory.ThrowExceptions = value; }
         }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether <see cref="NLogConfigurationException"/> should be thrown.
+        /// </summary>
+        /// <value>A value of <c>true</c> if exception should be thrown; otherwise, <c>false</c>.</value>
+        /// <remarks>
+        /// This option is for backwards-compatiblity.
+        /// By default exceptions are not thrown under any circumstances.
+        /// 
+        /// </remarks>
+        public static bool? ThrowConfigExceptions
+        {
+            get { return factory.ThrowConfigExceptions; }
+            set { factory.ThrowConfigExceptions = value; }
+        }
+
         internal static IAppDomain CurrentAppDomain
         {
             get { return currentAppDomain ?? (currentAppDomain = AppDomainWrapper.CurrentDomain); }
@@ -126,6 +150,7 @@ namespace NLog
 
         /// <summary>
         /// Gets or sets the current logging configuration.
+        /// <see cref="NLog.LogFactory.Configuration" />
         /// </summary>
         public static LoggingConfiguration Configuration
         {
@@ -153,7 +178,7 @@ namespace NLog
         }
 
         /// <summary>
-        /// Gets the logger named after the currently-being-initialized class.
+        /// Gets the logger with the name of the current class.  
         /// </summary>
         /// <returns>The logger.</returns>
         /// <remarks>This is a slow-running method. 
@@ -191,17 +216,17 @@ namespace NLog
         }
 
         /// <summary>
-        /// Gets the logger named after the currently-being-initialized class.
+        /// Gets a custom logger with the name of the current class. Use <paramref name="loggerType"/> to pass the type of the needed Logger.
         /// </summary>
         /// <param name="loggerType">The logger class. The class must inherit from <see cref="Logger" />.</param>
-        /// <returns>The logger.</returns>
+        /// <returns>The logger of type <paramref name="loggerType"/>.</returns>
         /// <remarks>This is a slow-running method. 
         /// Make sure you're not doing this in a loop.</remarks>
         [CLSCompliant(false)]
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static Logger GetCurrentClassLogger(Type loggerType)
         {
-            return factory.GetLogger(GetClassFullName(), loggerType);            
+            return factory.GetLogger(GetClassFullName(), loggerType);
         }
 
         /// <summary>
@@ -226,11 +251,12 @@ namespace NLog
         }
 
         /// <summary>
-        /// Gets the specified named logger.
+        /// Gets the specified named custom logger.  Use <paramref name="loggerType"/> to pass the type of the needed Logger.
         /// </summary>
         /// <param name="name">Name of the logger.</param>
         /// <param name="loggerType">The logger class. The class must inherit from <see cref="Logger" />.</param>
-        /// <returns>The logger reference. Multiple calls to <c>GetLogger</c> with the same argument aren't guaranteed to return the same logger reference.</returns>
+        /// <returns>The logger of type <paramref name="loggerType"/>. Multiple calls to <c>GetLogger</c> with the same argument aren't guaranteed to return the same logger reference.</returns>
+        /// <remarks>The generic way for this method is <see cref="NLog.LogFactory{loggerType}.GetLogger(string)"/></remarks>
         [CLSCompliant(false)]
         public static Logger GetLogger(string name, Type loggerType)
         {
@@ -349,6 +375,26 @@ namespace NLog
             }
         }
 
+#if !SILVERLIGHT && !MONO
+        private static void SetupTerminationEvents()
+        {
+            try
+            {
+                CurrentAppDomain.ProcessExit += TurnOffLogging;
+                CurrentAppDomain.DomainUnload += TurnOffLogging;
+            }
+            catch (Exception exception)
+            {
+                InternalLogger.Warn(exception, "Error setting up termination events.");
+
+                if (exception.MustBeRethrown())
+                {
+                    throw;
+                }
+            }
+        }
+#endif
+
         /// <summary>
         /// Gets the fully qualified name of the class invoking the LogManager, including the 
         /// namespace but not the assembly.    
@@ -381,25 +427,6 @@ namespace NLog
             return className;
         }
 
-#if !SILVERLIGHT && !MONO
-        private static void SetupTerminationEvents()
-        {
-            try
-            {
-                CurrentAppDomain.ProcessExit += TurnOffLogging;
-                CurrentAppDomain.DomainUnload += TurnOffLogging;
-            }
-            catch (Exception exception)
-            {
-                if (exception.MustBeRethrown())
-                {
-                    throw;
-                }
-
-                InternalLogger.Warn("Error setting up termination events: {0}", exception);
-            }            
-        }
-
         private static void TurnOffLogging(object sender, EventArgs args)
         {
             // Reset logging configuration to null; this causes old configuration (if any) to be 
@@ -408,6 +435,5 @@ namespace NLog
             Configuration = null;
             InternalLogger.Info("Logger has been shut down.");
         }
-#endif
     }
 }

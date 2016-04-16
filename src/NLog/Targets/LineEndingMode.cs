@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -128,7 +128,11 @@ namespace NLog.Targets
             if (name.Equals(Default.Name, StringComparison.OrdinalIgnoreCase)) return Default;
             if (name.Equals(None.Name, StringComparison.OrdinalIgnoreCase)) return None;
 
+#if !SILVERLIGHT
             throw new ArgumentOutOfRangeException("name", name, "LineEndingMode is out of range");
+#else
+            throw new ArgumentOutOfRangeException("name", "LineEndingMode is out of range");
+#endif
         }
 
         /// <summary>

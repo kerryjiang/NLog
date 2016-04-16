@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -60,14 +60,11 @@ namespace NLog.UnitTests.Targets
         {
             var target = new MyTarget();
             target.ThrowOnInitialize = true;
-            try
-            {
-                target.Initialize(null);
-                Assert.True(false, "Expected exception.");
-            }
-            catch (InvalidOperationException)
-            {
-            }
+
+            LogManager.ThrowExceptions = true;
+
+
+            Assert.Throws<InvalidOperationException>(() => target.Initialize(null));
 
             // after exception in Initialize(), the target becomes non-functional and all Write() operations
             var exceptions = new List<Exception>();
@@ -121,8 +118,8 @@ namespace NLog.UnitTests.Targets
             var target = new MyTarget();
             List<Exception> exceptions = new List<Exception>();
             target.WriteAsyncLogEvent(LogEventInfo.CreateNullEvent().WithContinuation(exceptions.Add));
-            target.WriteAsyncLogEvents(new[] 
-            { 
+            target.WriteAsyncLogEvents(new[]
+            {
                 LogEventInfo.CreateNullEvent().WithContinuation(exceptions.Add),
                 LogEventInfo.CreateNullEvent().WithContinuation(exceptions.Add),
                 LogEventInfo.CreateNullEvent().WithContinuation(exceptions.Add),
@@ -239,7 +236,7 @@ namespace NLog.UnitTests.Targets
             Thread.Sleep(50);
             List<Exception> exceptions = new List<Exception>();
             target.WriteAsyncLogEvent(LogEventInfo.CreateNullEvent().WithContinuation(exceptions.Add));
-            target.WriteAsyncLogEvents(new[] 
+            target.WriteAsyncLogEvents(new[]
             {
                 LogEventInfo.CreateNullEvent().WithContinuation(exceptions.Add),
                 LogEventInfo.CreateNullEvent().WithContinuation(exceptions.Add),
@@ -278,8 +275,8 @@ namespace NLog.UnitTests.Targets
             SimpleConfigurator.ConfigureForTargetLogging(target);
             var logger = LogManager.GetLogger("WriteFormattedStringEvent_EventWithNullArguments");
             string t = null;
-            logger.Info("Testing null:{0}",t);
-            Assert.Equal(1, target.WriteCount); 
+            logger.Info("Testing null:{0}", t);
+            Assert.Equal(1, target.WriteCount);
         }
 
         public class MyTarget : Target
@@ -348,6 +345,45 @@ namespace NLog.UnitTests.Targets
                     Thread.Sleep(millisecondsTimeout);
                     this.inBlockingOperation--;
                 }
+            }
+        }
+
+
+        [Fact]
+        public void WrongMyTargetShouldThrowException()
+        {
+
+            Assert.Throws<NLogRuntimeException>(() =>
+            {
+                var target = new WrongMyTarget();
+                LogManager.ThrowExceptions = true;
+                SimpleConfigurator.ConfigureForTargetLogging(target);
+                var logger = LogManager.GetLogger("WrongMyTargetShouldThrowException");
+                logger.Info("Testing");
+            });
+
+        }
+
+        [Fact]
+        public void WrongMyTargetShouldNotThrowExceptionWhenThrowExceptionsIsFalse()
+        {
+            var target = new WrongMyTarget();
+            LogManager.ThrowExceptions = false;
+            SimpleConfigurator.ConfigureForTargetLogging(target);
+            var logger = LogManager.GetLogger("WrongMyTargetShouldThrowException");
+            logger.Info("Testing");
+        }
+
+
+        public class WrongMyTarget : Target
+        {
+            /// <summary>
+            /// Initializes the target. Can be used by inheriting classes
+            /// to initialize logging.
+            /// </summary>
+            protected override void InitializeTarget()
+            {
+                //this is wrong. base.InitializeTarget() should be called
             }
         }
     }

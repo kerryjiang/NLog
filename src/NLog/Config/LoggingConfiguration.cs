@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -33,14 +33,13 @@
 
 using System.Globalization;
 using System.Linq;
+using NLog.Layouts;
 
 namespace NLog.Config
 {
     using System;
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
-    using System.Reflection;
-
     using JetBrains.Annotations;
 
     using NLog.Common;
@@ -51,12 +50,18 @@ namespace NLog.Config
     /// Keeps logging configuration and provides simple API
     /// to modify it.
     /// </summary>
+    ///<remarks>This class is thread-safe.<c>.ToList()</c> is used for that purpose.</remarks>
     public class LoggingConfiguration
     {
         private readonly IDictionary<string, Target> targets =
             new Dictionary<string, Target>(StringComparer.OrdinalIgnoreCase);
 
-        private object[] configItems;
+        private List<object> configItems = new List<object>();
+
+        /// <summary>
+        /// Variables defined in xml or in API. name is case case insensitive. 
+        /// </summary>
+        private readonly Dictionary<string, SimpleLayout> variables = new Dictionary<string, SimpleLayout>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Initializes a new instance of the <see cref="LoggingConfiguration" /> class.
@@ -64,6 +69,23 @@ namespace NLog.Config
         public LoggingConfiguration()
         {
             this.LoggingRules = new List<LoggingRule>();
+        }
+
+        /// <summary>
+        /// Use the old exception log handling of NLog 3.0? 
+        /// </summary>
+        [Obsolete("This option will be removed in NLog 5")]
+        public bool ExceptionLoggingOldStyle { get; set; }
+
+        /// <summary>
+        /// Gets the variables defined in the configuration.
+        /// </summary>
+        public IDictionary<string, SimpleLayout> Variables
+        {
+            get
+            {
+                return variables;
+            }
         }
 
         /// <summary>
@@ -107,7 +129,24 @@ namespace NLog.Config
         /// </summary>
         public ReadOnlyCollection<Target> AllTargets
         {
-            get { return this.configItems.OfType<Target>().ToList().AsReadOnly(); }
+            get
+            {
+                var configTargets = this.configItems.OfType<Target>();
+                return configTargets.Concat(targets.Values).ToList().AsReadOnly();
+            }
+        }
+
+        /// <summary>
+        /// Registers the specified target object. The name of the target is read from <see cref="Target.Name"/>.
+        /// </summary>
+        /// <param name="target">
+        /// The target object with a non <see langword="null"/> <see cref="Target.Name"/>
+        /// </param>
+        /// <exception cref="ArgumentNullException">when <paramref name="target"/> is <see langword="null"/></exception>
+        public void AddTarget([NotNull] Target target)
+        {
+            if (target == null) throw new ArgumentNullException("target");
+            AddTarget(target.Name, target);
         }
 
         /// <summary>
@@ -152,6 +191,110 @@ namespace NLog.Config
         }
 
         /// <summary>
+        /// Finds the target with the specified name and specified type.
+        /// </summary>
+        /// <param name="name">
+        /// The name of the target to be found.
+        /// </param>
+        /// <typeparam name="TTarget">Type of the target</typeparam>
+        /// <returns>
+        /// Found target or <see langword="null"/> when the target is not found of not of type <typeparamref name="TTarget"/>
+        /// </returns>
+        public TTarget FindTargetByName<TTarget>(string name)
+            where TTarget : Target
+        {
+            return FindTargetByName(name) as TTarget;
+        }
+
+        /// <summary>
+        /// Add a rule with min- and maxLevel.
+        /// </summary>
+        /// <param name="minLevel">Minimum log level needed to trigger this rule.</param>
+        /// <param name="maxLevel">Maximum log level needed to trigger this rule.</param>
+        /// <param name="targetName">Name of the target to be written when the rule matches.</param>
+        /// <param name="loggerNamePattern">Logger name pattern. It may include the '*' wildcard at the beginning, at the end or at both ends.</param>
+        public void AddRule(LogLevel minLevel, LogLevel maxLevel, string targetName, string loggerNamePattern = "*")
+        {
+            var target = FindTargetByName(targetName);
+            if (target == null)
+            {
+                throw new NLogRuntimeException("Target '{0}' not found", targetName);
+            }
+
+            AddRule(minLevel, maxLevel, target, loggerNamePattern);
+        }
+
+        /// <summary>
+        /// Add a rule with min- and maxLevel.
+        /// </summary>
+        /// <param name="minLevel">Minimum log level needed to trigger this rule.</param>
+        /// <param name="maxLevel">Maximum log level needed to trigger this rule.</param>
+        /// <param name="target">Target to be written to when the rule matches.</param>
+        /// <param name="loggerNamePattern">Logger name pattern. It may include the '*' wildcard at the beginning, at the end or at both ends.</param>
+        public void AddRule(LogLevel minLevel, LogLevel maxLevel, Target target, string loggerNamePattern = "*")
+        {
+            LoggingRules.Add(new LoggingRule(loggerNamePattern, minLevel, maxLevel, target));
+        }
+
+        /// <summary>
+        /// Add a rule for one loglevel.
+        /// </summary>
+        /// <param name="level">log level needed to trigger this rule. </param>
+        /// <param name="targetName">Name of the target to be written when the rule matches.</param>
+        /// <param name="loggerNamePattern">Logger name pattern. It may include the '*' wildcard at the beginning, at the end or at both ends.</param>
+        public void AddRuleForOneLevel(LogLevel level, string targetName, string loggerNamePattern = "*")
+        {
+            var target = FindTargetByName(targetName);
+            if (target == null)
+            {
+                throw new NLogConfigurationException("Target '{0}' not found", targetName);
+            }
+
+            AddRuleForOneLevel(level, target, loggerNamePattern);
+        }
+
+        /// <summary>
+        /// Add a rule for one loglevel.
+        /// </summary>
+        /// <param name="level">log level needed to trigger this rule. </param>
+        /// <param name="target">Target to be written to when the rule matches.</param>
+        /// <param name="loggerNamePattern">Logger name pattern. It may include the '*' wildcard at the beginning, at the end or at both ends.</param>
+        public void AddRuleForOneLevel(LogLevel level, Target target, string loggerNamePattern = "*")
+        {
+            var loggingRule = new LoggingRule(loggerNamePattern, target);
+            loggingRule.EnableLoggingForLevel(level);
+            LoggingRules.Add(loggingRule);
+        }
+
+        /// <summary>
+        /// Add a rule for alle loglevels.
+        /// </summary>
+        /// <param name="targetName">Name of the target to be written when the rule matches.</param>
+        /// <param name="loggerNamePattern">Logger name pattern. It may include the '*' wildcard at the beginning, at the end or at both ends.</param>
+        public void AddRuleForAllLevels(string targetName, string loggerNamePattern = "*")
+        {
+            var target = FindTargetByName(targetName);
+            if (target == null)
+            {
+                throw new NLogRuntimeException("Target '{0}' not found", targetName);
+            }
+
+            AddRuleForAllLevels(target, loggerNamePattern);
+        }
+
+        /// <summary>
+        /// Add a rule for alle loglevels.
+        /// </summary>
+        /// <param name="target">Target to be written to when the rule matches.</param>
+        /// <param name="loggerNamePattern">Logger name pattern. It may include the '*' wildcard at the beginning, at the end or at both ends.</param>
+        public void AddRuleForAllLevels(Target target, string loggerNamePattern = "*")
+        {
+            var loggingRule = new LoggingRule(loggerNamePattern, target);
+            loggingRule.EnableLoggingForLevels(LogLevel.MinLevel, LogLevel.MaxLevel);
+            LoggingRules.Add(loggingRule);
+        }
+
+        /// <summary>
         /// Called by LogManager when one of the log configuration files changes.
         /// </summary>
         /// <returns>
@@ -188,7 +331,8 @@ namespace NLog.Config
             }
 
             this.InitializeAll();
-            foreach (IInstallable installable in this.configItems.OfType<IInstallable>())
+            var configItemsList = GetInstallableItems();
+            foreach (IInstallable installable in configItemsList)
             {
                 installationContext.Info("Installing '{0}'", installable);
 
@@ -199,15 +343,17 @@ namespace NLog.Config
                 }
                 catch (Exception exception)
                 {
-                    if (exception.MustBeRethrown())
+                    InternalLogger.Error(exception, "Install of '{0}' failed.", installable);
+                    if (exception.MustBeRethrownImmediately())
                     {
                         throw;
                     }
 
-                    installationContext.Error("'{0}' installation failed: {1}.", installable, exception);
+                    installationContext.Error("Install of '{0}' failed: {1}.", installable, exception);
                 }
             }
         }
+
 
         /// <summary>
         /// Uninstalls target-specific objects from current system.
@@ -225,7 +371,8 @@ namespace NLog.Config
 
             this.InitializeAll();
 
-            foreach (IInstallable installable in this.configItems.OfType<IInstallable>())
+            var configItemsList = GetInstallableItems();
+            foreach (IInstallable installable in configItemsList)
             {
                 installationContext.Info("Uninstalling '{0}'", installable);
 
@@ -236,12 +383,13 @@ namespace NLog.Config
                 }
                 catch (Exception exception)
                 {
-                    if (exception.MustBeRethrown())
+                    InternalLogger.Error(exception, "Uninstall of '{0}' failed.", installable);
+                    if (exception.MustBeRethrownImmediately())
                     {
                         throw;
                     }
 
-                    installationContext.Error("Uninstallation of '{0}' failed: {1}.", installable, exception);
+                    installationContext.Error("Uninstall of '{0}' failed: {1}.", installable, exception);
                 }
             }
         }
@@ -252,7 +400,8 @@ namespace NLog.Config
         internal void Close()
         {
             InternalLogger.Debug("Closing logging configuration...");
-            foreach (ISupportsInitialize initialize in this.configItems.OfType<ISupportsInitialize>())
+            var supportsInitializesList = GetSupportsInitializes();
+            foreach (ISupportsInitialize initialize in supportsInitializesList)
             {
                 InternalLogger.Trace("Closing {0}", initialize);
                 try
@@ -261,18 +410,28 @@ namespace NLog.Config
                 }
                 catch (Exception exception)
                 {
+                    InternalLogger.Warn(exception, "Exception while closing.");
+
                     if (exception.MustBeRethrown())
                     {
                         throw;
                     }
 
-                    InternalLogger.Warn("Exception while closing {0}", exception);
+
                 }
             }
 
             InternalLogger.Debug("Finished closing logging configuration.");
         }
 
+        /// <summary>
+        /// Log to the internal (NLog) logger the information about the <see cref="Target"/> and <see
+        /// cref="LoggingRule"/> associated with this <see cref="LoggingConfiguration"/> instance.
+        /// </summary>
+        /// <remarks>
+        /// The information are only recorded in the internal logger if Debug level is enabled, otherwise nothing is 
+        /// recorded.
+        /// </remarks>
         internal void Dump()
         {
             if (!InternalLogger.IsDebugEnabled)
@@ -280,17 +439,19 @@ namespace NLog.Config
                 return;
             }
 
-            InternalLogger.Debug("--- NLog configuration dump. ---");
+            InternalLogger.Debug("--- NLog configuration dump ---");
             InternalLogger.Debug("Targets:");
-            foreach (Target target in this.targets.Values)
+            var targetList = this.targets.Values.ToList();
+            foreach (Target target in targetList)
             {
-                InternalLogger.Info("{0}", target);
+                InternalLogger.Debug("{0}", target);
             }
 
             InternalLogger.Debug("Rules:");
-            foreach (LoggingRule rule in this.LoggingRules)
+            var loggingRules = this.LoggingRules.ToList();
+            foreach (LoggingRule rule in loggingRules)
             {
-                InternalLogger.Info("{0}", rule);
+                InternalLogger.Debug("{0}", rule);
             }
 
             InternalLogger.Debug("--- End of NLog configuration dump ---");
@@ -303,13 +464,15 @@ namespace NLog.Config
         internal void FlushAllTargets(AsyncContinuation asyncContinuation)
         {
             var uniqueTargets = new List<Target>();
-            foreach (var rule in this.LoggingRules)
+            var loggingRules = this.LoggingRules.ToList();
+            foreach (var rule in loggingRules)
             {
-                foreach (var t in rule.Targets)
+                var targetList = rule.Targets.ToList();
+                foreach (var target in targetList)
                 {
-                    if (!uniqueTargets.Contains(t))
+                    if (!uniqueTargets.Contains(target))
                     {
-                        uniqueTargets.Add(t);
+                        uniqueTargets.Add(target);
                     }
                 }
             }
@@ -323,12 +486,15 @@ namespace NLog.Config
         internal void ValidateConfig()
         {
             var roots = new List<object>();
-            foreach (LoggingRule r in this.LoggingRules)
+
+            var loggingRules = this.LoggingRules.ToList();
+            foreach (LoggingRule rule in loggingRules)
             {
-                roots.Add(r);
+                roots.Add(rule);
             }
 
-            foreach (Target target in this.targets.Values)
+            var targetList = this.targets.Values.ToList();
+            foreach (Target target in targetList)
             {
                 roots.Add(target);
             }
@@ -337,7 +503,7 @@ namespace NLog.Config
 
             // initialize all config items starting from most nested first
             // so that whenever the container is initialized its children have already been
-            InternalLogger.Info("Found {0} configuration items", this.configItems.Length);
+            InternalLogger.Info("Found {0} configuration items", this.configItems.Count);
 
             foreach (object o in this.configItems)
             {
@@ -349,7 +515,8 @@ namespace NLog.Config
         {
             this.ValidateConfig();
 
-            foreach (ISupportsInitialize initialize in this.configItems.OfType<ISupportsInitialize>().Reverse())
+            var supportsInitializes = GetSupportsInitializes(true);
+            foreach (ISupportsInitialize initialize in supportsInitializes)
             {
                 InternalLogger.Trace("Initializing {0}", initialize);
 
@@ -372,9 +539,25 @@ namespace NLog.Config
             }
         }
 
+
         internal void EnsureInitialized()
         {
             this.InitializeAll();
+        }
+
+        private List<IInstallable> GetInstallableItems()
+        {
+            return this.configItems.OfType<IInstallable>().ToList();
+        }
+
+        private List<ISupportsInitialize> GetSupportsInitializes(bool reverse = false)
+        {
+            var items = this.configItems.OfType<ISupportsInitialize>();
+            if (reverse)
+            {
+                items = items.Reverse();
+            }
+            return items.ToList();
         }
     }
 }

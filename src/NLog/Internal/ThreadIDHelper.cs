@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,7 +31,7 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
-#if !SILVERLIGHT
+#if !SILVERLIGHT && !__IOS__
 
 namespace NLog.Internal
 {
@@ -63,11 +63,6 @@ namespace NLog.Internal
         /// </summary>
         /// <value>The instance.</value>
         public static ThreadIDHelper Instance { get; private set; }
-
-        /// <summary>
-        /// Gets current thread ID.
-        /// </summary>
-        public abstract int CurrentThreadID { get; }
 
         /// <summary>
         /// Gets current process ID.

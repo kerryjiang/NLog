@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,9 +31,13 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
+using JetBrains.Annotations;
+
 namespace NLog.UnitTests
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Diagnostics;
     using System.IO;
     using Xunit;
@@ -41,6 +45,11 @@ namespace NLog.UnitTests
     using NLog.Config;
     using NLog.Layouts;
     using NLog.Targets;
+
+#if NET4_5
+    using System.Threading.Tasks;
+    using Microsoft.Practices.Unity;
+#endif
 
     public class LogManagerTests : NLogTestBase
     {
@@ -68,8 +77,8 @@ namespace NLog.UnitTests
 
         static WeakReference GetWeakReferenceToTemporaryLogger()
         {
-            string uniqueLoggerName = Guid.NewGuid ().ToString();
-            return new WeakReference (LogManager.GetLogger(uniqueLoggerName));
+            string uniqueLoggerName = Guid.NewGuid().ToString();
+            return new WeakReference(LogManager.GetLogger(uniqueLoggerName));
         }
 
         [Fact]
@@ -157,7 +166,7 @@ namespace NLog.UnitTests
                         <logger name='DisableLoggingTest_UsingStatement_B' levels='Error' writeTo='debug' />
                     </rules>
                 </nlog>";
-            
+
             // Disable/Enable logging should affect ALL the loggers.
             ILogger loggerA = LogManager.GetLogger("DisableLoggingTest_UsingStatement_A");
             ILogger loggerB = LogManager.GetLogger("DisableLoggingTest_UsingStatement_B");
@@ -185,7 +194,7 @@ namespace NLog.UnitTests
                 AssertDebugLastMessage("debug", "---");
 
                 loggerB.Error("EEE");
-                AssertDebugLastMessage("debug", "---");                
+                AssertDebugLastMessage("debug", "---");
             }
 
             Assert.True(LogManager.IsLoggingEnabled());
@@ -228,7 +237,7 @@ namespace NLog.UnitTests
 
             loggerA.Trace("---");
             AssertDebugLastMessage("debug", "---");
-           
+
             LogManager.DisableLogging();
             Assert.False(LogManager.IsLoggingEnabled());
 
@@ -241,7 +250,7 @@ namespace NLog.UnitTests
             AssertDebugLastMessage("debug", "---");
 
             LogManager.EnableLogging();
-            
+
             Assert.True(LogManager.IsLoggingEnabled());
 
             loggerA.Trace("TTT");
@@ -271,7 +280,7 @@ namespace NLog.UnitTests
             _reloadCounter++;
         }
 
-        private bool IsMacOsX ()
+        private bool IsMacOsX()
         {
 #if MONO
             if (Directory.Exists("/Library/Frameworks/Mono.framework/"))
@@ -292,7 +301,7 @@ namespace NLog.UnitTests
                 // filesystem watcher
                 return;
             }
-            
+
             using (new InternalLoggerScope())
             {
                 string fileName = Path.GetTempFileName();
@@ -367,7 +376,6 @@ namespace NLog.UnitTests
                 finally
                 {
                     LogManager.ConfigurationReloaded -= OnConfigReloaded;
-                    LogManager.Configuration = null;
                     if (File.Exists(fileName))
                         File.Delete(fileName);
                 }
@@ -383,13 +391,206 @@ namespace NLog.UnitTests
             Assert.Equal(this.GetType().FullName, logger.Name);
         }
 
-#if NET4_0
+        private static class ImAStaticClass
+        {
+            [UsedImplicitly]
+            private static readonly Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
+            static ImAStaticClass() { }
+
+            public static void DummyToInvokeInitializers() { }
+
+        }
+
+        [Fact]
+        void GetCurrentClassLogger_static_class()
+        {
+            ImAStaticClass.DummyToInvokeInitializers();
+        }
+
+        private abstract class ImAAbstractClass
+        {
+            /// <summary>
+            /// Initializes a new instance of the <see cref="T:System.Object"/> class.
+            /// </summary>
+            protected ImAAbstractClass()
+            {
+                Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+            }
+        }
+
+        private class InheritedFromAbstractClass : ImAAbstractClass
+        {
+
+        }
+
+        /// <summary>
+        /// Creating instance in a static ctor should not be a problm
+        /// </summary>
+        [Fact]
+        void GetCurrentClassLogger_abstract_class()
+        {
+            var instance = new InheritedFromAbstractClass();
+        }
+
+        /// <summary>
+        /// I'm a class which isn't inhereting from Logger
+        /// </summary>
+        private class ImNotALogger
+        {
+
+        }
+
+
+
+        /// <summary>
+        /// ImNotALogger inherits not from Logger , but should not throw an exception
+        /// </summary>
+        [Fact]
+        void GetLogger_wrong_loggertype_should_continue()
+        {
+            var instance = LogManager.GetLogger("a", typeof(ImNotALogger));
+            Assert.NotNull(instance);
+
+        }
+
+        /// <summary>
+        /// ImNotALogger inherits not from Logger , but should not throw an exception
+        /// </summary>
+        [Fact]
+        void GetLogger_wrong_loggertype_should_continue_even_if_class_is_static()
+        {
+            var instance = LogManager.GetLogger("a", typeof(ImAStaticClass));
+            Assert.NotNull(instance);
+
+        }
+
+
+#if NET4_0 || NET4_5
         [Fact]
         public void GivenLazyClass_WhenGetCurrentClassLogger_ThenLoggerNameShouldBeCurrentClass()
         {
             var logger = new Lazy<ILogger>(LogManager.GetCurrentClassLogger);
 
             Assert.Equal(this.GetType().FullName, logger.Value.Name);
+        }
+#endif
+#if NET4_5
+
+        /// <summary>
+        /// target for <see cref="ThreadSafe_getCurrentClassLogger_test"/>
+        /// </summary>
+        private static MemoryQueueTarget mTarget = new MemoryQueueTarget(500);
+        /// <summary>
+        /// target for <see cref="ThreadSafe_getCurrentClassLogger_test"/>
+        /// </summary>
+        private static MemoryQueueTarget mTarget2 = new MemoryQueueTarget(500);
+
+        /// <summary>
+        /// Note: THe problem  can be reproduced when: debugging the unittest + "break when exception is thrown" checked in visual studio.
+        /// 
+        /// https://github.com/NLog/NLog/issues/500
+        /// </summary>
+        [Fact]
+        public void ThreadSafe_getCurrentClassLogger_test()
+        {
+            using (var c = new UnityContainer())
+            {
+                var r = Enumerable.Range(1, 100); //reported with 10.
+                Task.Run(() =>
+                {
+                    //need for init
+                    LogManager.Configuration = new LoggingConfiguration();
+                    LogManager.Configuration.AddTarget("memory", mTarget);
+                    LogManager.Configuration.LoggingRules.Add(new LoggingRule("*", LogLevel.Debug, mTarget));
+                    LogManager.Configuration.AddTarget("memory2", mTarget2);
+                    LogManager.Configuration.LoggingRules.Add(new LoggingRule("*", LogLevel.Debug, mTarget2));
+                    LogManager.ReconfigExistingLoggers();
+                });
+
+                Parallel.ForEach(r, a =>
+                {
+                    var res = c.Resolve<ClassA>();
+                });
+                mTarget.Layout = @"${date:format=HH\:mm\:ss}|${level:uppercase=true}|${message} ${exception:format=tostring}";
+                mTarget2.Layout = @"${date:format=HH\:mm\:ss}|${level:uppercase=true}|${message} ${exception:format=tostring}";
+            }
+        }
+
+        /// <summary>
+        /// target for <see cref="ThreadSafe_getCurrentClassLogger_test"/>
+        /// </summary>
+        [Target("Memory")]
+        public sealed class MemoryQueueTarget : TargetWithLayout
+        {
+            private int maxSize;
+            public MemoryQueueTarget(int size)
+            {
+                this.Logs = new Queue<string>();
+                this.maxSize = size;
+            }
+
+            public Queue<string> Logs { get; private set; }
+
+            protected override void Write(LogEventInfo logEvent)
+            {
+                string msg = this.Layout.Render(logEvent);
+                if (msg.Length > 100)
+                    msg = msg.Substring(0, 100) + "...";
+
+                this.Logs.Enqueue(msg);
+                while (this.Logs.Count > maxSize)
+                {
+                    Logs.Dequeue();
+                }
+            }
+        }
+
+        /// <summary>
+        /// class for <see cref="ThreadSafe_getCurrentClassLogger_test"/>
+        /// </summary>
+        public class ClassA
+        {
+            private static Logger logger = LogManager.GetCurrentClassLogger();
+            public ClassA(ClassB dd)
+            {
+                logger.Info("Hi there A");
+
+            }
+        }
+        /// <summary>
+        /// class for <see cref="ThreadSafe_getCurrentClassLogger_test"/>
+        /// </summary>
+        public class ClassB
+        {
+            private static Logger logger = LogManager.GetCurrentClassLogger();
+            public ClassB(ClassC dd)
+            {
+                logger.Info("Hi there B");
+            }
+        }
+        /// <summary>
+        /// class for <see cref="ThreadSafe_getCurrentClassLogger_test"/>
+        /// </summary>
+        public class ClassC
+        {
+            private static Logger logger = LogManager.GetCurrentClassLogger();
+            public ClassC(ClassD dd)
+            {
+                logger.Info("Hi there C");
+
+            }
+        }
+        /// <summary>
+        /// class for <see cref="ThreadSafe_getCurrentClassLogger_test"/>
+        /// </summary>
+        public class ClassD
+        {
+            private static Logger logger = LogManager.GetCurrentClassLogger();
+            public ClassD()
+            {
+                logger.Info("Hi there D");
+            }
         }
 #endif
     }

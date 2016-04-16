@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -72,12 +72,13 @@ namespace NLog.Config
                 }
                 catch (Exception exception)
                 {
+                    InternalLogger.Error(exception, "Failed to add type '{0}'.", t.FullName);
+                    
                     if (exception.MustBeRethrown())
                     {
                         throw;
                     }
-
-                    InternalLogger.Error("Failed to add type '" + t.FullName + "': {0}", exception);
+                    
                 }
             }
         }
@@ -135,9 +136,9 @@ namespace NLog.Config
         /// <returns>Item definition.</returns>
         public bool TryGetDefinition(string itemName, out Type result)
         {
-            GetTypeDelegate del;
+            GetTypeDelegate getTypeDelegate;
 
-            if (!this.items.TryGetValue(itemName, out del))
+            if (!this.items.TryGetValue(itemName, out getTypeDelegate))
             {
                 result = null;
                 return false;
@@ -145,7 +146,7 @@ namespace NLog.Config
 
             try
             {
-                result = del();
+                result = getTypeDelegate();
                 return result != null;
             }
             catch (Exception ex)

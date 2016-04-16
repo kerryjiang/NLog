@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -35,7 +35,6 @@ using System.Security;
 
 namespace NLog.Internal.FileAppenders
 {
-    using System;
     using System.IO;
     using NLog.Common;
 
@@ -56,14 +55,18 @@ namespace NLog.Internal.FileAppenders
         /// <param name="parameters">The parameters.</param>
         public SingleProcessFileAppender(string fileName, ICreateFileParameters parameters) : base(fileName, parameters)
         {
-            var fi = new FileInfo(fileName);
-            if (fi.Exists)
+            var fileInfo = new FileInfo(fileName);
+            if (fileInfo.Exists)
             {
-                this.FileTouched(fi.LastWriteTimeUtc);
+#if !SILVERLIGHT
+                FileTouched(fileInfo.LastWriteTimeUtc);
+#else
+                FileTouched(fileInfo.LastWriteTime);
+#endif
             }
             else
             {
-                this.FileTouched();
+                FileTouched();
             }
             this.file = CreateFileStream(false);
         }
@@ -115,25 +118,10 @@ namespace NLog.Internal.FileAppenders
         /// <summary>
         /// Gets the file info.
         /// </summary>
-        /// <param name="lastWriteTime">The last file write time. The value must be of UTC kind.</param>
-        /// <param name="fileLength">Length of the file.</param>
-        /// <returns>
-        /// True if the operation succeeded, false otherwise.
-        /// </returns>
-        public override bool GetFileInfo(out DateTime lastWriteTime, out long fileLength)
+        /// <returns>The file characteristics, if the file information was retrieved successfully, otherwise null.</returns>
+        public override FileCharacteristics GetFileCharacteristics()
         {
-            if (file != null)
-            {
-                lastWriteTime = LastWriteTime;
-                fileLength = file.Length;
-                return true;
-            }
-            else
-            {
-                lastWriteTime = new DateTime();
-                fileLength = 0;
-                return false;
-            }
+            return file == null ? null : new FileCharacteristics(CreationTime, LastWriteTime, file.Length);
         }
 
         /// <summary>

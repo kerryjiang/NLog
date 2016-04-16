@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -63,12 +63,13 @@ namespace NLog.LayoutRenderers
             }
             catch (Exception exception)
             {
+                InternalLogger.Error(exception, "Error getting machine name.");
+
                 if (exception.MustBeRethrown())
                 {
                     throw;
                 }
 
-                InternalLogger.Error("Error getting machine name {0}", exception);
                 this.MachineName = string.Empty;
             }
         }

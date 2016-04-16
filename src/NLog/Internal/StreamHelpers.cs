@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -43,7 +43,6 @@ namespace NLog.Internal
     /// </summary>
     public static class StreamHelpers
     {
-
         /// <summary>
         /// Copy stream input to output. Skip the first bytes
         /// </summary>
@@ -52,28 +51,20 @@ namespace NLog.Internal
         /// <param name="offset">first bytes to skip (optional)</param>
         public static void CopyWithOffset(this Stream input, Stream output, int offset)
         {
-
             if (offset < 0)
             {
                 throw new ArgumentException("negative offset");
             }
 
-          
-           //skip offset
+            //skip offset
             input.Seek(offset, SeekOrigin.Current);
-
 
             byte[] buffer = new byte[4096];
             int read;
             while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
             {
-
                 output.Write(buffer, 0, read);
-               
             }
         }
-
-      
-
     }
 }

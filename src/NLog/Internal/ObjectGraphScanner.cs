@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -54,22 +54,23 @@ namespace NLog.Internal
         /// <typeparam name="T">Type of the objects to return.</typeparam>
         /// <param name="rootObjects">The root objects.</param>
         /// <returns>Ordered list of objects implementing T.</returns>
-        public static T[] FindReachableObjects<T>(params object[] rootObjects)
+        public static List<T> FindReachableObjects<T>(params object[] rootObjects)
             where T : class
         {
             InternalLogger.Trace("FindReachableObject<{0}>:", typeof(T));
             var result = new List<T>();
-            var visitedObjects = new Dictionary<object, int>();
+            var visitedObjects = new HashSet<object>();
 
             foreach (var rootObject in rootObjects)
             {
                 ScanProperties(result, rootObject, 0, visitedObjects);
             }
 
-            return result.ToArray();
+            return result.ToList();
         }
 
-        private static void ScanProperties<T>(List<T> result, object o, int level, Dictionary<object, int> visitedObjects)
+        /// <remarks>ISet is not there in .net35, so using HashSet</remarks>
+        private static void ScanProperties<T>(List<T> result, object o, int level, HashSet<object> visitedObjects)
             where T : class
         {
             if (o == null)
@@ -77,17 +78,18 @@ namespace NLog.Internal
                 return;
             }
 
-            if (!o.GetType().IsDefined(typeof(NLogConfigurationItemAttribute), true))
+            var type = o.GetType();
+            if (!type.IsDefined(typeof(NLogConfigurationItemAttribute), true))
             {
                 return;
             }
 
-            if (visitedObjects.ContainsKey(o))
+            if (visitedObjects.Contains(o))
             {
                 return;
             }
 
-            visitedObjects.Add(o, 0);
+            visitedObjects.Add(o);
 
             var t = o as T;
             if (t != null)
@@ -97,10 +99,10 @@ namespace NLog.Internal
 
             if (InternalLogger.IsTraceEnabled)
             {
-                InternalLogger.Trace("{0}Scanning {1} '{2}'", new string(' ', level), o.GetType().Name, o);
+                InternalLogger.Trace("{0}Scanning {1} '{2}'", new string(' ', level), type.Name, o);
             }
 
-            foreach (PropertyInfo prop in PropertyHelper.GetAllReadableProperties(o.GetType()))
+            foreach (PropertyInfo prop in PropertyHelper.GetAllReadableProperties(type))
             {
                 if (prop.PropertyType.IsPrimitive || prop.PropertyType.IsEnum || prop.PropertyType == typeof(string) || prop.IsDefined(typeof(NLogConfigurationIgnorePropertyAttribute), true))
                 {
@@ -112,19 +114,47 @@ namespace NLog.Internal
                 {
                     continue;
                 }
-                
-                var enumerable = value as IEnumerable;
-                if (enumerable != null)
+
+                var list = value as IList;
+                if (list != null)
                 {
-                    foreach (object element in enumerable)
+                    //try first icollection for syncroot
+                    List<object> elements;
+                    lock (list.SyncRoot)
                     {
-                        ScanProperties(result, element, level + 1, visitedObjects);
+                        elements = new List<object>(list.Count);
+                        //no foreach. Even .Cast can lead to  Collection was modified after the enumerator was instantiated.
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            var item = list[i];
+                            elements.Add(item);
+                        }
                     }
+                    ScanPropertiesList(result, elements, level + 1, visitedObjects);
                 }
                 else
                 {
-                    ScanProperties(result, value, level + 1, visitedObjects);
+                    var enumerable = value as IEnumerable;
+                    if (enumerable != null)
+                    {
+                        //cast to list otherwhise possible:  Collection was modified after the enumerator was instantiated.
+                        var elements = enumerable as IList<object> ?? enumerable.Cast<object>().ToList();
+
+                        ScanPropertiesList(result, elements, level + 1, visitedObjects);
+                    }
+                    else
+                    {
+                        ScanProperties(result, value, level + 1, visitedObjects);
+                    }
                 }
+            }
+        }
+
+        private static void ScanPropertiesList<T>(List<T> result, IEnumerable<object> elements, int level, HashSet<object> visitedObjects) where T : class
+        {
+            foreach (object element in elements)
+            {
+                ScanProperties(result, element, level, visitedObjects);
             }
         }
     }

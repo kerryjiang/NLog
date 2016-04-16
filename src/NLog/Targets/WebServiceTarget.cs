@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -98,13 +98,13 @@ namespace NLog.Targets
         public Uri Url { get; set; }
 
         /// <summary>
-        /// Gets or sets the Web service method name.
+        /// Gets or sets the Web service method name. Only used with Soap.
         /// </summary>
         /// <docgen category='Web Service Options' order='10' />
         public string MethodName { get; set; }
 
         /// <summary>
-        /// Gets or sets the Web service namespace.
+        /// Gets or sets the Web service namespace. Only used with Soap.
         /// </summary>
         /// <docgen category='Web Service Options' order='10' />
         public string Namespace { get; set; }
@@ -147,7 +147,7 @@ namespace NLog.Targets
         /// <param name="continuation">The continuation.</param>
         protected override void DoInvoke(object[] parameters, AsyncContinuation continuation)
         {
-            var request = (HttpWebRequest)WebRequest.Create(this.Url);
+            var request = (HttpWebRequest)WebRequest.Create(BuildWebServiceUrl(parameters));
             Func<AsyncCallback, IAsyncResult> begin = (r) => request.BeginGetRequestStream(r, null);
             Func<IAsyncResult, Stream> getStream = request.EndGetRequestStream;
 
@@ -170,7 +170,7 @@ namespace NLog.Targets
                     break;
 
                 case WebServiceProtocol.HttpGet:
-                    postPayload = this.PrepareGetRequest(request, parameters);
+                    this.PrepareGetRequest(request);
                     break;
 
                 case WebServiceProtocol.HttpPost:
@@ -200,7 +200,8 @@ namespace NLog.Targets
                             }
                             catch (Exception ex2)
                             {
-                                InternalLogger.Error(ex2.ToString());
+                                InternalLogger.Error(ex2, "Error when sending to Webservice.");
+
                                 if (ex2.MustBeRethrown())
                                 {
                                     throw;
@@ -232,7 +233,8 @@ namespace NLog.Targets
                         catch (Exception ex)
                         {
                             postPayload.Dispose();
-                            InternalLogger.Error(ex.ToString());
+                            InternalLogger.Error(ex, "Error when sending to Webservice.");
+
                             if (ex.MustBeRethrown())
                             {
                                 throw;
@@ -246,6 +248,45 @@ namespace NLog.Targets
             {
                 sendContinuation(null);
             }
+        }
+
+        /// <summary>
+        /// Builds the URL to use when calling the web service for a message, depending on the WebServiceProtocol.
+        /// </summary>
+        /// <param name="parameterValues"></param>
+        /// <returns></returns>
+        private Uri BuildWebServiceUrl(object[] parameterValues)
+        {
+            if (this.Protocol != WebServiceProtocol.HttpGet)
+            {
+                return this.Url;
+            }
+            
+            //if the protocol is HttpGet, we need to add the parameters to the query string of the url
+            var queryParameters = new StringBuilder();
+            string separator = string.Empty;
+            for (int i = 0; i < this.Parameters.Count; i++)
+            {
+                queryParameters.Append(separator);
+                queryParameters.Append(this.Parameters[i].Name);
+                queryParameters.Append("=");
+                queryParameters.Append(UrlHelper.UrlEncode(Convert.ToString(parameterValues[i], CultureInfo.InvariantCulture), false));
+                separator = "&";
+            }
+
+            var builder = new UriBuilder(this.Url);
+            //append our query string to the URL following 
+            //the recommendations at https://msdn.microsoft.com/en-us/library/system.uribuilder.query.aspx
+            if (builder.Query != null && builder.Query.Length > 1)
+            {
+                builder.Query = builder.Query.Substring(1) + "&" + queryParameters.ToString();
+            }
+            else
+            {
+                builder.Query = queryParameters.ToString();
+            }
+
+            return builder.Uri;
         }
 
         private MemoryStream PrepareSoap11Request(HttpWebRequest request, object[] parameterValues)
@@ -310,10 +351,9 @@ namespace NLog.Targets
             return PrepareHttpRequest(request, parameterValues);
         }
 
-        private MemoryStream PrepareGetRequest(HttpWebRequest request, object[] parameterValues)
+        private void PrepareGetRequest(HttpWebRequest request)
         {
             request.Method = "GET";
-            return PrepareHttpRequest(request, parameterValues);
         }
 
         private MemoryStream PrepareHttpRequest(HttpWebRequest request, object[] parameterValues)

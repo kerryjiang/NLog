@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -47,7 +47,7 @@ namespace NLog.LogReceiverService
         /// Processes the log messages.
         /// </summary>
         /// <param name="events">The events.</param>
-        [OperationContract()]
+        [OperationContract]
         void ProcessLogMessages(NLogEvents events);
     }
 }

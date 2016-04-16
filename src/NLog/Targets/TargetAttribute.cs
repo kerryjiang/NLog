@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -39,6 +39,7 @@ namespace NLog.Targets
     /// <summary>
     /// Marks class as a logging target and assigns a name to it.
     /// </summary>
+    /// <remarks>This attribute is not required when registering the target in the API.</remarks>
     [AttributeUsage(AttributeTargets.Class)]
     public sealed class TargetAttribute : NameBaseAttribute
     {

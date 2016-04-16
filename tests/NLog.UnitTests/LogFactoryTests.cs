@@ -1,5 +1,5 @@
-﻿// 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// 
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -31,13 +31,17 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 // 
 
-
 #if !SILVERLIGHT
 namespace NLog.UnitTests
 {
     using System;
-    using NLog.Config;
+    using System.IO;
+    using System.Threading;
+    using System.Reflection;
+
     using Xunit;
+
+    using NLog.Config;
 
     public class LogFactoryTests : NLogTestBase
     {
@@ -55,7 +59,7 @@ namespace NLog.UnitTests
             ILogger logger = LogManager.GetCurrentClassLogger();
             logger.Factory.Flush(_ => { }, TimeSpan.FromMilliseconds(1));
         }
-        
+
         [Fact]
         public void InvalidXMLConfiguration_DoesNotThrowErrorWhen_ThrowExceptionFlagIsNotSet()
         {
@@ -63,7 +67,7 @@ namespace NLog.UnitTests
             try
             {
                 LogManager.ThrowExceptions = false;
-                
+
                 LogManager.Configuration = CreateConfigurationFromString(@"
             <nlog internalLogToConsole='IamNotBooleanValue'>
                 <targets><target type='MethodCall' name='test' methodName='Throws' className='NLog.UnitTests.LogFactoryTests, NLog.UnitTests.netfx40' /></targets>
@@ -72,15 +76,15 @@ namespace NLog.UnitTests
                 </rules>
             </nlog>");
             }
-            catch(Exception)
+            catch (Exception)
             {
                 ExceptionThrown = true;
             }
-            
+
             Assert.False(ExceptionThrown);
-            
+
         }
-        
+
         [Fact]
         public void InvalidXMLConfiguration_ThrowErrorWhen_ThrowExceptionFlagIsSet()
         {
@@ -88,7 +92,7 @@ namespace NLog.UnitTests
             try
             {
                 LogManager.ThrowExceptions = true;
-                
+
                 LogManager.Configuration = CreateConfigurationFromString(@"
             <nlog internalLogToConsole='IamNotBooleanValue'>
                 <targets><target type='MethodCall' name='test' methodName='Throws' className='NLog.UnitTests.LogFactoryTests, NLog.UnitTests.netfx40' /></targets>
@@ -97,13 +101,47 @@ namespace NLog.UnitTests
                 </rules>
             </nlog>");
             }
-            catch(Exception)
+            catch (Exception)
             {
                 ExceptionThrown = true;
             }
-            
+
             Assert.True(ExceptionThrown);
-            
+
+        }
+
+        [Fact]
+        public void SecondaryLogFactoryDoesNotTakePrimaryLogFactoryLock()
+        {
+            File.WriteAllText("NLog.config", "<nlog />");
+            try
+            {
+                bool threadTerminated;
+
+                var primaryLogFactory = typeof(LogManager).GetField("factory", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+                var primaryLogFactoryLock = typeof(LogFactory).GetField("syncRoot", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(primaryLogFactory);
+                // Simulate a potential deadlock. 
+                // If the creation of the new LogFactory takes the lock of the global LogFactory, the thread will deadlock.
+                lock (primaryLogFactoryLock)
+                {
+                    var thread = new Thread(() =>
+                    {
+                        (new LogFactory()).GetCurrentClassLogger();
+                    });
+                    thread.Start();
+                    threadTerminated = thread.Join(TimeSpan.FromSeconds(1));
+                }
+
+                Assert.True(threadTerminated);
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete("NLog.config");
+                }
+                catch { }
+            }
         }
 
         [Fact]
@@ -180,6 +218,75 @@ namespace NLog.UnitTests
         public static void Throws()
         {
             throw new Exception();
+        }
+
+        /// <summary>
+        /// We should be forward compatible so that we can add easily attributes in the future.
+        /// </summary>
+        [Fact]
+        public void NewAttrOnNLogLevelShouldNotThrowError()
+        {
+            LogManager.Configuration = CreateConfigurationFromString(@"
+            <nlog throwExceptions='true' imAnewAttribute='noError'>
+                <targets><target type='file' name='f1' filename='test.log' /></targets>
+                <rules>
+                    <logger name='*' minlevel='Debug' writeto='f1'></logger>
+                </rules>
+            </nlog>");
+        }
+        
+        [Fact]
+        public void EnableAndDisableLogging()
+        {
+            LogFactory factory = new LogFactory();
+#pragma warning disable 618
+            // In order Suspend => Resume 
+            Assert.True(factory.IsLoggingEnabled());
+            factory.DisableLogging();
+            Assert.False(factory.IsLoggingEnabled());
+            factory.EnableLogging();
+            Assert.True(factory.IsLoggingEnabled());
+#pragma warning restore 618           
+        }
+
+        [Fact]
+        public void SuspendAndResumeLogging_InOrder()
+        {
+            LogFactory factory = new LogFactory();
+
+            // In order Suspend => Resume [Case 1]
+            Assert.True(factory.IsLoggingEnabled());
+            factory.SuspendLogging();
+            Assert.False(factory.IsLoggingEnabled());
+            factory.ResumeLogging();
+            Assert.True(factory.IsLoggingEnabled());
+
+            // In order Suspend => Resume [Case 2]
+            using (var factory2 = new LogFactory())
+            {
+                Assert.True(factory.IsLoggingEnabled());
+                factory.SuspendLogging();
+                Assert.False(factory.IsLoggingEnabled());
+                factory.ResumeLogging();
+                Assert.True(factory.IsLoggingEnabled());
+            }
+        }
+
+        [Fact]
+        public void SuspendAndResumeLogging_OutOfOrder()
+        {
+            LogFactory factory = new LogFactory();
+
+            // Out of order Resume => Suspend => (Suspend => Resume)
+            factory.ResumeLogging();
+            Assert.True(factory.IsLoggingEnabled());
+            factory.SuspendLogging();
+            Assert.True(factory.IsLoggingEnabled());
+            factory.SuspendLogging();
+            Assert.False(factory.IsLoggingEnabled());
+            factory.ResumeLogging();
+            Assert.True(factory.IsLoggingEnabled());
+
         }
     }
 }

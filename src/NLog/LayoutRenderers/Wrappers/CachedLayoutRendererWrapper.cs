@@ -1,5 +1,5 @@
 // 
-// Copyright (c) 2004-2011 Jaroslaw Kowalski <jaak@jkowalski.net>
+// Copyright (c) 2004-2016 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
 // 
 // All rights reserved.
 // 
@@ -33,8 +33,9 @@
 
 namespace NLog.LayoutRenderers.Wrappers
 {
-    using System.ComponentModel;
     using NLog.Config;
+    using System;
+    using System.ComponentModel;
 
     /// <summary>
     /// Applies caching to another layout output.
@@ -44,10 +45,25 @@ namespace NLog.LayoutRenderers.Wrappers
     /// </remarks>
     [LayoutRenderer("cached")]
     [AmbientProperty("Cached")]
+    [AmbientProperty("ClearCache")] 
     [ThreadAgnostic]
     public sealed class CachedLayoutRendererWrapper : WrapperLayoutRendererBase
     {
-        private string cachedValue;
+        /// <summary>
+        /// A value indicating when the cache is cleared.
+        /// </summary>
+        [Flags]
+        public enum ClearCacheOption 
+        { 
+            /// <summary>Never clear the cache.</summary>
+            None = 0,
+            /// <summary>Clear the cache whenever the <see cref="CachedLayoutRendererWrapper"/> is initialized.</summary>
+            OnInit = 1,
+            /// <summary>Clear the cache whenever the <see cref="CachedLayoutRendererWrapper"/> is closed.</summary>
+            OnClose = 2
+        }
+
+        private string cachedValue = null;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="CachedLayoutRendererWrapper"/> class.
@@ -55,6 +71,7 @@ namespace NLog.LayoutRenderers.Wrappers
         public CachedLayoutRendererWrapper()
         {
             this.Cached = true;
+            this.ClearCache = ClearCacheOption.OnInit | ClearCacheOption.OnClose;
         }
 
         /// <summary>
@@ -65,12 +82,18 @@ namespace NLog.LayoutRenderers.Wrappers
         public bool Cached { get; set; }
 
         /// <summary>
+        /// Gets or sets a value indicating when the cache is cleared.
+        /// </summary>
+        public ClearCacheOption ClearCache { get; set; }
+
+        /// <summary>
         /// Initializes the layout renderer.
         /// </summary>
         protected override void InitializeLayoutRenderer()
         {
             base.InitializeLayoutRenderer();
-            this.cachedValue = null;
+            if ((ClearCache & ClearCacheOption.OnInit) == ClearCacheOption.OnInit)
+                this.cachedValue = null;
         }
 
         /// <summary>
@@ -79,7 +102,8 @@ namespace NLog.LayoutRenderers.Wrappers
         protected override void CloseLayoutRenderer()
         {
             base.CloseLayoutRenderer();
-            this.cachedValue = null;
+            if ((ClearCache & ClearCacheOption.OnClose) == ClearCacheOption.OnClose)
+                this.cachedValue = null;
         }
 
         /// <summary>
